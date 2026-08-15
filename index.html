@@ -48,9 +48,28 @@
         <div class="flex items-center gap-3">
             <div class="xhs-bg text-white font-bold px-2.5 py-1 rounded-lg text-sm shadow-sm">小红书</div>
             <h1 class="text-base font-bold text-gray-900">收藏夹整理专家</h1>
-            <span class="bg-emerald-50 text-emerald-600 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200">图片自动转存本地</span>
+            <span class="bg-emerald-50 text-emerald-600 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200">纯网页免安装</span>
         </div>
         <div class="flex items-center gap-3">
+            <!-- 脚本获取下拉/按钮区 -->
+            <div class="relative group">
+                <button class="bg-red-50 text-red-600 hover:bg-red-100 text-xs px-3 py-2 rounded-lg font-medium transition flex items-center gap-1.5 border border-red-200">
+                    <i data-lucide="code" class="w-3.5 h-3.5"></i>
+                    <span>获取抓取脚本</span>
+                    <i data-lucide="chevron-down" class="w-3 h-3"></i>
+                </button>
+                <div class="absolute right-0 mt-1 w-52 bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 hidden group-hover:block z-50 text-xs">
+                    <button onclick="copyScriptCode()" class="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+                        <i data-lucide="copy" class="w-3.5 h-3.5 text-gray-400"></i> 一键复制脚本源码
+                    </button>
+                    <button onclick="downloadScriptFile()" class="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+                        <i data-lucide="download" class="w-3.5 h-3.5 text-gray-400"></i> 下载脚本文件 (.user.js)
+                    </button>
+                </div>
+            </div>
+
+            <div class="h-4 w-[1px] bg-gray-200 mx-1"></div>
+
             <button id="undoBtn" onclick="undoAction()" disabled title="撤回 (Ctrl+Z)" class="bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed text-xs px-3 py-2 rounded-lg font-medium transition flex items-center gap-1">
                 <i data-lucide="undo-2" class="w-3.5 h-3.5"></i>
                 <span>撤回</span>
@@ -175,6 +194,262 @@
     </div>
 
     <script>
+        // ----------------- 篡改猴脚本源码内置 -----------------
+        const tampermonkeyScriptCode = `// ==UserScript==
+// @name XHS Collected Notes Exporter
+// @namespace https://tampermonkey.net/
+// @version 1.0.0
+// @description Export loaded collected notes on xiaohongshu.com to CSV.
+// @match https://www.xiaohongshu.com/*
+// @match https://*.xiaohongshu.com/*
+// @run-at document-idle
+// @icon https://www.xiaohongshu.com/favicon.ico
+// @grant none
+// ==/UserScript==
+(function () {
+'use strict';
+const notes = [];
+const seen = new Set();
+let autoScrollTimer = null;
+function injectStyle() {
+if (document.querySelector('#xhs-collect-exporter-style')) return;
+const style = document.createElement('style');
+style.id = 'xhs-collect-exporter-style';
+style.textContent = \`
+.xhs-collect-exporter {
+position: fixed !important;
+left: 18px !important;
+top: 18px !important;
+z-index: 2147483647 !important;
+width: 210px !important;
+padding: 12px !important;
+border-radius: 12px !important;
+background: #18181b !important;
+color: #fff !important;
+box-shadow: 0 10px 30px rgba(0,0,0,.22) !important;
+font-size: 13px !important;
+line-height: 1.4 !important;
+font-family: Arial, sans-serif !important;
+}
+.xhs-collect-exporter button {
+width: 100% !important;
+margin-top: 8px !important;
+border: 0 !important;
+border-radius: 8px !important;
+padding: 9px 10px !important;
+background: #ff2442 !important;
+color: #fff !important;
+cursor: pointer !important;
+font-size: 13px !important;
+}
+.xhs-collect-exporter button.secondary {
+background: #52525b !important;
+}
+\`;
+(document.head || document.documentElement).appendChild(style);
+}
+function pickCover(note) {
+return note?.cover?.url_default ||
+note?.cover?.url_pre ||
+note?.note_card?.cover?.url_default ||
+note?.note_card?.cover?.url_pre ||
+'';
+}
+function pickTitle(note) {
+return note?.display_title ||
+note?.title ||
+note?.note_card?.display_title ||
+note?.note_card?.title ||
+'';
+}
+function pickNoteId(note) {
+return note?.note_id ||
+note?.id ||
+note?.note_card?.note_id ||
+note?.note_card?.id ||
+'';
+}
+function pickToken(note) {
+return note?.xsec_token || note?.note_card?.xsec_token || '';
+}
+function pickUser(note) {
+return note?.user || note?.user_info || note?.note_card?.user || note?.note_card?.user_info || {};
+}
+function pickLikedCount(note) {
+return note?.interact_info?.liked_count ||
+note?.note_card?.interact_info?.liked_count ||
+'';
+}
+function normalizeNote(raw) {
+const note = raw?.note_card || raw;
+const noteId = pickNoteId(note);
+const token = pickToken(note);
+const user = pickUser(note);
+const url = noteId
+? \`https://www.xiaohongshu.com/explore/\${noteId}\${token ? \`?xsec_token=\${encodeURIComponent(token)}&xsec_source=pc_user\` : ''}\`
+: '';
+return {
+note_id: noteId,
+title: pickTitle(note),
+author: user.nickname || user.nick_name || user.name || '',
+user_id: user.user_id || user.id || '',
+liked_count: pickLikedCount(note),
+cover: pickCover(note),
+url,
+category: '',
+tags: '',
+remark: '',
+exported_from: 'collect_page',
+exported_at: new Date().toISOString()
+};
+}
+function addNotes(list) {
+if (!Array.isArray(list)) return;
+for (const item of list) {
+const note = normalizeNote(item);
+if (!note.note_id || seen.has(note.note_id)) continue;
+seen.add(note.note_id);
+notes.push(note);
+}
+updateCounter();
+}
+function findNoteLists(data, found = []) {
+if (!data || typeof data !== 'object') return found;
+if (Array.isArray(data)) {
+if (data.some(item => item && typeof item === 'object' && (item.note_id || item.id || item.note_card))) {
+found.push(data);
+}
+for (const item of data) findNoteLists(item, found);
+return found;
+}
+for (const value of Object.values(data)) findNoteLists(value, found);
+return found;
+}
+function shouldReadUrl(url) {
+const text = String(url || '');
+return text.includes('/api/sns/web/v2/note/collect/page') ||
+text.includes('/api/sns/web/v1/note/collect/page') ||
+text.includes('/api/sns/web/v1/user/collect');
+}
+function handleApiResponse(url, text) {
+if (!shouldReadUrl(url)) return;
+try {
+const data = JSON.parse(text);
+for (const list of findNoteLists(data)) addNotes(list);
+} catch (error) {
+console.warn('XHS collected notes exporter parse failed:', error);
+}
+}
+function interceptXHR() {
+const originalOpen = XMLHttpRequest.prototype.open;
+const originalSend = XMLHttpRequest.prototype.send;
+XMLHttpRequest.prototype.open = function (method, url) {
+this.__xhs_export_url = url;
+return originalOpen.apply(this, arguments);
+};
+XMLHttpRequest.prototype.send = function () {
+this.addEventListener('load', function () {
+handleApiResponse(this.__xhs_export_url, this.responseText);
+});
+return originalSend.apply(this, arguments);
+};
+}
+function interceptFetch() {
+const originalFetch = window.fetch;
+window.fetch = async function (...args) {
+const response = await originalFetch.apply(this, args);
+const url = args[0]?.url || args[0];
+if (shouldReadUrl(url)) {
+response.clone().text().then(text => handleApiResponse(url, text));
+}
+return response;
+};
+}
+function csvEscape(value) {
+const text = String(value ?? '');
+return \`"\${text.replaceAll('"', '""')}"\`;
+}
+function exportCsv() {
+if (!notes.length) {
+alert('还没有抓到收藏笔记。请先进入收藏页，点击“自动滚动抓取”，等数量增加后再导出。');
+return;
+}
+const headers = Object.keys(notes[0]);
+const rows = [
+headers.join(','),
+...notes.map(note => headers.map(header => csvEscape(note[header])).join(','))
+];
+const blob = new Blob(['\\ufeff' + rows.join('\\n')], { type: 'text/csv;charset=utf-8' });
+const link = document.createElement('a');
+link.href = URL.createObjectURL(blob);
+link.download = \`xhs_collected_notes_\${new Date().toISOString().slice(0, 10)}.csv\`;
+link.click();
+URL.revokeObjectURL(link.href);
+}
+function updateCounter() {
+const counter = document.querySelector('#xhs-collect-export-counter');
+if (counter) counter.textContent = \`已抓到：\${notes.length} 条\`;
+}
+function toggleAutoScroll(button) {
+if (autoScrollTimer) {
+clearInterval(autoScrollTimer);
+autoScrollTimer = null;
+button.textContent = '自动滚动抓取';
+return;
+}
+button.textContent = '停止滚动';
+autoScrollTimer = setInterval(() => {
+window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+}, 1200);
+}
+function createUI() {
+if (document.querySelector('.xhs-collect-exporter')) return;
+const panel = document.createElement('div');
+panel.className = 'xhs-collect-exporter';
+panel.innerHTML = \`
+<div><strong>收藏导出</strong></div>
+<div id="xhs-collect-export-counter">已抓到：0 条</div>
+<button id="xhs-collect-export-scroll">自动滚动抓取</button>
+<button id="xhs-collect-export-download" class="secondary">导出 CSV</button>
+\`;
+document.documentElement.appendChild(panel);
+document.querySelector('#xhs-collect-export-scroll').addEventListener('click', event => toggleAutoScroll(event.currentTarget));
+document.querySelector('#xhs-collect-export-download').addEventListener('click', exportCsv);
+}
+function init() {
+interceptXHR();
+interceptFetch();
+injectStyle();
+createUI();
+console.log('XHS collected notes exporter loaded.');
+}
+if (document.readyState === 'loading') {
+document.addEventListener('DOMContentLoaded', init);
+} else {
+init();
+}
+})();`;
+
+        function copyScriptCode() {
+            navigator.clipboard.writeText(tampermonkeyScriptCode).then(() => {
+                showToast("脚本源码已复制，请在篡改猴中新建脚本粘贴");
+            }).catch(err => {
+                alert("复制失败，请手动复制");
+            });
+        }
+
+        function downloadScriptFile() {
+            const blob = new Blob([tampermonkeyScriptCode], { type: 'text/javascript;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'xhs_collector.user.js';
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast("脚本文件已开始下载");
+        }
+        // -----------------------------------------------------
+
         let allNotes = [];
         let currentCategory = 'ALL';
         let currentCols = '4';
@@ -569,7 +844,6 @@
                 const link = String(getVal(['链接', 'link', 'url']) || '#').trim();
                 const rawCover = String(getVal(['封面', 'cover', '图片', '图片地址']) || '').trim();
                 
-                // 使用智能解析函数，正确处理“万”或“w”单位
                 const likes = parseCountNumber(getVal(['点赞数', '点赞', 'likes', 'like_count', 'liked_count']));
                 const collects = parseCountNumber(getVal(['收藏数', '收藏', 'collects']));
 
@@ -730,7 +1004,6 @@
                     ${coverHtml}
                     <div class="p-3 flex flex-col justify-between flex-1">
                         <div>
-                            <!-- 点赞数展示（带格式化 w 单位） -->
                             <div class="flex items-center justify-between text-[11px] text-gray-400 mb-1">
                                 <div class="flex items-center gap-1 text-gray-500 font-medium">
                                     <i data-lucide="heart" class="w-3.5 h-3.5 text-red-500 fill-red-500"></i>
@@ -749,7 +1022,6 @@
                             </div>
                         </div>
 
-                        <!-- 想法区域：已压缩边距，放大文本框占比 -->
                         <div class="mt-2.5 bg-gray-50 rounded-lg p-2 border border-gray-200/80 text-xs flex flex-col gap-1">
                             <div class="text-[10px] font-bold text-gray-500 flex items-center justify-between">
                                 <span class="flex items-center gap-1"><i data-lucide="pen-tool" class="w-3 h-3 text-gray-400"></i> 我的想法</span>
@@ -762,7 +1034,6 @@
                                       class="w-full bg-white border border-gray-200 rounded p-1.5 text-gray-700 text-xs focus:outline-none focus:ring-1 focus:ring-red-400 resize-none placeholder-gray-400 min-h-[68px] leading-relaxed">${note.myThoughts || ''}</textarea>
                         </div>
 
-                        <!-- 底部栏保留作者与打开原文 -->
                         <div class="flex items-center justify-between mt-2.5 pt-2 text-[11px] text-gray-400 border-t border-gray-100">
                             <span class="text-gray-400 text-[11px] truncate max-w-[140px]">${note.author || '小红书'}</span>
                             <a href="${note.link}" target="_blank" class="flex items-center gap-1 text-xs text-blue-600 hover:underline font-medium ml-auto">
