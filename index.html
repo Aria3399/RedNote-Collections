@@ -13,9 +13,24 @@
     <style>
         .xhs-bg { background-color: #ff2442; }
         .xhs-text { color: #ff2442; }
-        .card-masonry { columns: 1; gap: 1rem; }
-        @media (min-width: 640px) { .card-masonry { columns: 2; } }
-        @media (min-width: 1280px) { .card-masonry { columns: 3; } }
+        .card-masonry { gap: 1rem; }
+
+        /* 3、4、5 列切换控制 */
+        .cols-3 { columns: 1; }
+        @media (min-width: 640px) { .cols-3 { columns: 2; } }
+        @media (min-width: 1024px) { .cols-3 { columns: 3; } }
+
+        .cols-4 { columns: 1; }
+        @media (min-width: 640px) { .cols-4 { columns: 2; } }
+        @media (min-width: 1024px) { .cols-4 { columns: 3; } }
+        @media (min-width: 1280px) { .cols-4 { columns: 4; } }
+
+        .cols-5 { columns: 1; }
+        @media (min-width: 640px) { .cols-5 { columns: 2; } }
+        @media (min-width: 1024px) { .cols-5 { columns: 3; } }
+        @media (min-width: 1280px) { .cols-5 { columns: 4; } }
+        @media (min-width: 1536px) { .cols-5 { columns: 5; } }
+
         .break-inside-avoid { break-inside: avoid; }
         
         /* 隐藏滚动条但允许滚动 */
@@ -30,7 +45,6 @@
         <div class="flex items-center gap-3">
             <div class="xhs-bg text-white font-bold px-2.5 py-1 rounded-lg text-sm shadow-sm">小红书</div>
             <h1 class="text-base font-bold text-gray-900">收藏夹整理专家</h1>
-            <span class="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">✨ 增量合并 & 防盗链修复</span>
         </div>
         <div class="flex items-center gap-3">
             <!-- 导入 CSV (支持自动增量合并) -->
@@ -88,19 +102,21 @@
 
                 <div class="flex items-center gap-4 text-xs text-gray-500">
                     <span id="statsCount" class="font-medium">共 0 条笔记</span>
+                    
+                    <!-- 每排显示 3、4、5 个卡片的选择器 -->
                     <div class="flex items-center gap-1.5">
-                        <label class="text-gray-400">排序：</label>
-                        <select id="sortSelect" onchange="filterAndRender()" class="bg-gray-50 border border-gray-200 text-xs rounded-lg p-1.5 focus:outline-none focus:ring-2 focus:ring-red-400">
-                            <option value="default">默认排列</option>
-                            <option value="likesDesc">点赞数最多</option>
-                            <option value="collectsDesc">收藏数最多</option>
+                        <label class="text-gray-400">每排显示：</label>
+                        <select id="colsSelect" onchange="changeColumns(this.value)" class="bg-gray-50 border border-gray-200 text-xs rounded-lg p-1.5 focus:outline-none focus:ring-2 focus:ring-red-400">
+                            <option value="3">3 个卡片</option>
+                            <option value="4" selected>4 个卡片</option>
+                            <option value="5">5 个卡片</option>
                         </select>
                     </div>
                 </div>
             </div>
 
-            <!-- 卡片瀑布流区域 -->
-            <div id="notesContainer" class="card-masonry"></div>
+            <!-- 卡片瀑布流区域（默认 4 列） -->
+            <div id="notesContainer" class="card-masonry cols-4"></div>
 
             <div id="emptyState" class="hidden flex-1 flex flex-col items-center justify-center text-gray-400 py-20">
                 <i data-lucide="folder-open" class="w-12 h-12 mb-3 text-gray-300"></i>
@@ -139,6 +155,7 @@
     <script>
         let allNotes = [];
         let currentCategory = 'ALL';
+        let currentCols = '4';
 
         const PROMPT_CATEGORIES = {
             'AI工具 & 科技': ['ai', 'chatgpt', '提示词', 'midjourney', '代码', 'python', '编程', '软件', '工具', '黑科技', 'github', '大模型', 'prompt', '自动化', '科技', '数码', '算法'],
@@ -173,6 +190,13 @@
                 }
             } catch(e) { console.error(e); }
         });
+
+        // 切换每排显示的卡片列数
+        function changeColumns(cols) {
+            currentCols = cols;
+            const container = document.getElementById('notesContainer');
+            container.className = `card-masonry cols-${cols}`;
+        }
 
         // 核心功能：处理 CSV 导入（支持增量合并）
         function handleFileSelect(event) {
@@ -368,7 +392,6 @@
         // 筛选并渲染卡片
         function filterAndRender() {
             const searchText = document.getElementById('searchInput').value.toLowerCase();
-            const sortType = document.getElementById('sortSelect').value;
 
             let filtered = allNotes.filter(n => {
                 if (currentCategory === 'ALL') return true;
@@ -384,9 +407,6 @@
                     (n.myThoughts && n.myThoughts.toLowerCase().includes(searchText))
                 );
             }
-
-            if (sortType === 'likesDesc') filtered.sort((a, b) => b.likes - a.likes);
-            if (sortType === 'collectsDesc') filtered.sort((a, b) => b.collects - a.collects);
 
             const container = document.getElementById('notesContainer');
             const emptyState = document.getElementById('emptyState');
@@ -441,7 +461,7 @@
                                       class="w-full bg-transparent text-gray-700 text-xs focus:outline-none resize-none placeholder-gray-400 min-h-[40px] leading-relaxed">${note.myThoughts || ''}</textarea>
                         </div>
 
-                        <!-- 底部状态栏（已去掉点赞和收藏图标） -->
+                        <!-- 底部状态栏 -->
                         <div class="flex items-center justify-between mt-3 pt-2.5 text-[11px] text-gray-400 border-t border-gray-100">
                             <span class="text-gray-400 text-[11px]">${note.author || '小红书'}</span>
                             <a href="${note.link}" target="_blank" class="flex items-center gap-1 text-xs text-blue-600 hover:underline font-medium ml-auto">
@@ -506,7 +526,7 @@
             }
         }
 
-        // 导出整站完整数据备份（包含所有想法和编辑好的 Tag）
+        // 导出整站完整数据备份
         function exportBackupJSON() {
             if (allNotes.length === 0) {
                 alert("目前没有数据可供备份！");
