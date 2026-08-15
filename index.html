@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- 关键防盗链设置：禁止向小红书图床发送 Referer，解决 GitHub Pages 部署后封面图片不显示的问题 -->
     <meta name="referrer" content="no-referrer">
-    <title>小红书收藏夹整理专家 - 完整稳定版</title>
+    <title>小红书收藏夹整理专家</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
@@ -13,54 +12,61 @@
     <style>
         .xhs-bg { background-color: #ff2442; }
         .xhs-text { color: #ff2442; }
-        .card-masonry { gap: 1rem; }
-
-        /* 3、4、5 列切换控制 */
-        .cols-3 { columns: 1; }
-        @media (min-width: 640px) { .cols-3 { columns: 2; } }
-        @media (min-width: 1024px) { .cols-3 { columns: 3; } }
-
-        .cols-4 { columns: 1; }
-        @media (min-width: 640px) { .cols-4 { columns: 2; } }
-        @media (min-width: 1024px) { .cols-4 { columns: 3; } }
-        @media (min-width: 1280px) { .cols-4 { columns: 4; } }
-
-        .cols-5 { columns: 1; }
-        @media (min-width: 640px) { .cols-5 { columns: 2; } }
-        @media (min-width: 1024px) { .cols-5 { columns: 3; } }
-        @media (min-width: 1280px) { .cols-5 { columns: 4; } }
-        @media (min-width: 1536px) { .cols-5 { columns: 5; } }
-
-        .break-inside-avoid { break-inside: avoid; }
         
-        /* 隐藏滚动条但允许滚动 */
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        /* 瀑布流容器核心基础属性 */
+        #notesContainer {
+            column-gap: 1rem;
+            width: 100%;
+        }
+
+        .break-inside-avoid { 
+            break-inside: avoid; 
+            -webkit-column-break-inside: avoid;
+        }
+        
+        .toast-enter {
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.3s ease;
+        }
+        .toast-show {
+            opacity: 1;
+            transform: translateY(0);
+        }
     </style>
 </head>
 <body class="bg-gray-100 h-screen w-screen overflow-hidden text-gray-800 flex flex-col font-sans">
 
-    <!-- Header (固定在顶部) -->
+    <!-- Toast 轻提示 -->
+    <div id="toast" class="fixed bottom-6 right-6 bg-gray-900/90 backdrop-blur-md text-white text-xs font-medium px-4 py-2.5 rounded-xl shadow-xl z-50 flex items-center gap-2 toast-enter pointer-events-none">
+        <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i>
+        <span id="toast-text">保存成功</span>
+    </div>
+
+    <!-- Header -->
     <header class="bg-white border-b border-gray-200 shrink-0 px-6 py-3 flex items-center justify-between shadow-sm z-30">
         <div class="flex items-center gap-3">
             <div class="xhs-bg text-white font-bold px-2.5 py-1 rounded-lg text-sm shadow-sm">小红书</div>
             <h1 class="text-base font-bold text-gray-900">收藏夹整理专家</h1>
+            <span class="bg-emerald-50 text-emerald-600 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200">图片自动转存本地</span>
         </div>
         <div class="flex items-center gap-3">
-            <!-- 导入 CSV (支持自动增量合并) -->
+            <button onclick="undoAction()" class="bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs px-3 py-2 rounded-lg font-medium transition flex items-center gap-1">
+                <i data-lucide="undo-2" class="w-3.5 h-3.5"></i>
+                <span>撤回 (Ctrl+Z)</span>
+            </button>
+
             <button onclick="document.getElementById('csvFileInput').click()" class="xhs-bg text-white text-xs px-3.5 py-2 rounded-lg font-medium hover:opacity-90 transition flex items-center gap-1.5 shadow-sm">
                 <i data-lucide="file-plus" class="w-4 h-4"></i>
                 <span>导入新 CSV (增量合并)</span>
             </button>
             <input type="file" id="csvFileInput" accept=".csv" class="hidden" onchange="handleFileSelect(event)">
             
-            <!-- 导出备份 JSON -->
             <button onclick="exportBackupJSON()" class="bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs px-3 py-2 rounded-lg font-medium transition flex items-center gap-1">
                 <i data-lucide="download" class="w-3.5 h-3.5"></i>
-                <span>导出备份</span>
+                <span>导出完整备份(含图片)</span>
             </button>
 
-            <!-- 恢复备份 JSON -->
             <button onclick="document.getElementById('jsonFileInput').click()" class="bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs px-3 py-2 rounded-lg font-medium transition flex items-center gap-1">
                 <i data-lucide="upload" class="w-3.5 h-3.5"></i>
                 <span>恢复备份</span>
@@ -71,27 +77,31 @@
         </div>
     </header>
 
-    <!-- Main Layout (占满剩余高度) -->
+    <!-- Main Layout -->
     <div class="flex flex-1 overflow-hidden">
-
-        <!-- 左侧分类栏 (独立固定的滚动区域) -->
+        <!-- 左侧分类栏 -->
         <aside class="w-64 bg-white border-r border-gray-200 p-4 flex flex-col shrink-0 h-full">
             <div class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 px-2 flex items-center justify-between shrink-0">
-                <span>12 大核心分类</span>
+                <span>分类列表</span>
                 <i data-lucide="folder-tree" class="w-3.5 h-3.5"></i>
             </div>
             
-            <!-- 左侧内部可独立滚动 -->
             <div id="categoryList" class="space-y-1 overflow-y-auto flex-1 pr-1"></div>
 
-            <div class="border-t border-gray-100 pt-3 text-[11px] text-gray-400 px-2 leading-relaxed shrink-0 mt-2">
-                💡 再次导入 CSV 时，会自动追加新笔记，并<b>完整保留你修改过的分类、Tag 和“我的想法”</b>！
+            <div class="pt-2 shrink-0 border-t border-gray-100 mt-2">
+                <button onclick="addCustomCategory()" class="w-full flex items-center justify-center gap-1.5 py-2 px-3 border border-dashed border-gray-300 hover:border-red-400 text-gray-600 hover:text-red-500 rounded-lg text-xs font-medium transition">
+                    <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                    <span>添加自定义分类</span>
+                </button>
+            </div>
+
+            <div class="pt-3 text-[11px] text-gray-400 px-2 leading-relaxed shrink-0">
+                💡 导入图片后会自动异步下载并转换为本地 Base64 格式，永久固定存储在浏览器中，再也不怕链接过期失效。
             </div>
         </aside>
 
-        <!-- 右侧内容区 (独立固定的滚动区域) -->
+        <!-- 右侧内容区 -->
         <main class="flex-1 flex flex-col overflow-y-auto p-6 h-full">
-            <!-- 搜索与筛选控制栏 -->
             <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200/80 mb-6 flex flex-wrap gap-4 items-center justify-between shrink-0">
                 <div class="relative flex-1 min-w-[280px]">
                     <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
@@ -103,10 +113,9 @@
                 <div class="flex items-center gap-4 text-xs text-gray-500">
                     <span id="statsCount" class="font-medium">共 0 条笔记</span>
                     
-                    <!-- 每排显示 3、4、5 个卡片的选择器 -->
                     <div class="flex items-center gap-1.5">
                         <label class="text-gray-400">每排显示：</label>
-                        <select id="colsSelect" onchange="changeColumns(this.value)" class="bg-gray-50 border border-gray-200 text-xs rounded-lg p-1.5 focus:outline-none focus:ring-2 focus:ring-red-400">
+                        <select id="colsSelect" onchange="changeColumns(this.value)" class="bg-gray-50 border border-gray-200 text-xs rounded-lg p-1.5 focus:outline-none focus:ring-2 focus:ring-red-400 font-medium">
                             <option value="3">3 个卡片</option>
                             <option value="4" selected>4 个卡片</option>
                             <option value="5">5 个卡片</option>
@@ -115,8 +124,7 @@
                 </div>
             </div>
 
-            <!-- 卡片瀑布流区域（默认 4 列） -->
-            <div id="notesContainer" class="card-masonry cols-4"></div>
+            <div id="notesContainer"></div>
 
             <div id="emptyState" class="hidden flex-1 flex flex-col items-center justify-center text-gray-400 py-20">
                 <i data-lucide="folder-open" class="w-12 h-12 mb-3 text-gray-300"></i>
@@ -125,19 +133,27 @@
         </main>
     </div>
 
-    <!-- 编辑分类与 Tag 弹窗 -->
+    <!-- 编辑弹窗 -->
     <div id="editModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100">
             <h3 class="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <i data-lucide="edit-3" class="w-4 h-4 xhs-text"></i> 编辑分类与标签
+                <i data-lucide="edit-3" class="w-4 h-4 xhs-text"></i> 编辑笔记信息
             </h3>
             <input type="hidden" id="editNoteId">
             
             <div class="space-y-4 text-xs">
                 <div>
+                    <label class="block text-gray-600 font-medium mb-1">笔记标题：</label>
+                    <textarea id="editTitleInput" rows="2" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-red-400 leading-snug resize-none"></textarea>
+                </div>
+                <div>
                     <label class="block text-gray-600 font-medium mb-1">选择分类：</label>
                     <select id="editCategorySelect" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-red-400">
                     </select>
+                </div>
+                <div>
+                    <label class="block text-gray-600 font-medium mb-1">封面图片链接 / Base64：</label>
+                    <input type="text" id="editCoverInput" placeholder="输入新的图片链接" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-red-400">
                 </div>
                 <div>
                     <label class="block text-gray-600 font-medium mb-1">自定义 Tag（空格分隔）：</label>
@@ -156,6 +172,14 @@
         let allNotes = [];
         let currentCategory = 'ALL';
         let currentCols = '4';
+        let toastTimer = null;
+        let undoStack = [];
+
+        let categoryList = [
+            'AI工具 & 科技', '副业搞钱 & 商业', '求职面试 & 职场', '自我提升 & 认知',
+            '养生健康 & 变美', '旅行攻略 & 摄影', '美食料理 & 探店', '小说推文 & 阅读',
+            '动漫影视 & 娱乐', '生活妙招 & 手工', '留学移民 & 海外生活', '城市生活 & 探店'
+        ];
 
         const PROMPT_CATEGORIES = {
             'AI工具 & 科技': ['ai', 'chatgpt', '提示词', 'midjourney', '代码', 'python', '编程', '软件', '工具', '黑科技', 'github', '大模型', 'prompt', '自动化', '科技', '数码', '算法'],
@@ -179,26 +203,223 @@
 
         document.addEventListener("DOMContentLoaded", async () => {
             lucide.createIcons();
+            // 初始化列数显示
+            changeColumns(currentCols);
+
             try {
+                const savedCats = await localforage.getItem("xhs_custom_categories");
+                if (savedCats && Array.isArray(savedCats)) {
+                    categoryList = Array.from(new Set([...categoryList, ...savedCats]));
+                }
+
                 const savedData = await localforage.getItem("xhs_v10_interactive_notes");
                 if (savedData && savedData.length > 0) {
                     allNotes = savedData;
+                    allNotes.forEach(n => {
+                        if (n.category && !categoryList.includes(n.category)) {
+                            categoryList.push(n.category);
+                        }
+                    });
                     renderCategories();
                     filterAndRender();
+
+                    cacheMissingImages();
                 } else {
+                    renderCategories();
                     document.getElementById('emptyState').classList.remove('hidden');
                 }
             } catch(e) { console.error(e); }
+
+            document.addEventListener('keydown', (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+                    const activeTag = document.activeElement.tagName.toLowerCase();
+                    if (activeTag !== 'input' && activeTag !== 'textarea') {
+                        e.preventDefault();
+                        undoAction();
+                    }
+                }
+            });
         });
 
-        // 切换每排显示的卡片列数
+        // 强行用原生 CSS 内联设置列数，突破任何 Media Query 限制
         function changeColumns(cols) {
             currentCols = cols;
             const container = document.getElementById('notesContainer');
-            container.className = `card-masonry cols-${cols}`;
+            if (container) {
+                container.style.columnCount = cols;
+                container.style.webkitColumnCount = cols;
+                container.style.mozColumnCount = cols;
+            }
         }
 
-        // 核心功能：处理 CSV 导入（支持增量合并）
+        function formatUrl(rawUrl) {
+            if (!rawUrl) return '';
+            let url = rawUrl.trim();
+            if (url.startsWith('data:image')) return url;
+            if (url.startsWith('//')) url = 'https:' + url;
+            if (url.startsWith('http://')) url = url.replace('http://', 'https://');
+            return url;
+        }
+
+        async function fetchImageAsBase64(url) {
+            if (!url || url.startsWith('data:image')) return url;
+            
+            const cleanUrl = formatUrl(url).split('?')[0];
+            const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(cleanUrl)}`;
+
+            try {
+                const response = await fetch(proxyUrl);
+                if (!response.ok) throw new Error("代理请求失败");
+                const blob = await response.blob();
+
+                return new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.onerror = () => resolve('');
+                    reader.readAsDataURL(blob);
+                });
+            } catch (err) {
+                console.warn("图片本地化失败，将保留原始链接:", url);
+                return '';
+            }
+        }
+
+        async function cacheMissingImages() {
+            let hasUpdated = false;
+            for (let note of allNotes) {
+                if (note.cover && !note.cover.startsWith('data:image') && !note.localCover) {
+                    const base64Data = await fetchImageAsBase64(note.cover);
+                    if (base64Data) {
+                        note.localCover = base64Data;
+                        hasUpdated = true;
+                    }
+                }
+            }
+            if (hasUpdated) {
+                await localforage.setItem("xhs_v10_interactive_notes", allNotes);
+                filterAndRender();
+            }
+        }
+
+        function pushUndoState() {
+            if (undoStack.length >= 20) undoStack.shift();
+            undoStack.push({
+                notes: JSON.parse(JSON.stringify(allNotes)),
+                categories: [...categoryList]
+            });
+        }
+
+        async function undoAction() {
+            if (undoStack.length === 0) {
+                showToast("没有可撤回的操作");
+                return;
+            }
+            const previousState = undoStack.pop();
+            allNotes = previousState.notes;
+            categoryList = previousState.categories;
+
+            await localforage.setItem("xhs_custom_categories", categoryList);
+            await localforage.setItem("xhs_v10_interactive_notes", allNotes);
+
+            renderCategories();
+            filterAndRender();
+            showToast("已成功撤回上一步");
+        }
+
+        function showToast(message = "保存成功") {
+            const toast = document.getElementById('toast');
+            const toastText = document.getElementById('toast-text');
+            toastText.innerText = message;
+            
+            toast.classList.add('toast-show');
+
+            if (toastTimer) clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => {
+                toast.classList.remove('toast-show');
+            }, 2000);
+        }
+
+        async function saveCategoryList() {
+            await localforage.setItem("xhs_custom_categories", categoryList);
+        }
+
+        async function addCustomCategory() {
+            const catName = prompt("请输入新的自定义分类名称：");
+            if (catName && catName.trim() !== '') {
+                const cleanCat = catName.trim();
+                if (!categoryList.includes(cleanCat)) {
+                    pushUndoState();
+                    categoryList.push(cleanCat);
+                    await saveCategoryList();
+                    renderCategories();
+                    showToast("分类添加成功");
+                } else {
+                    alert("该分类名称已存在！");
+                }
+            }
+        }
+
+        async function editCategoryName(oldCatName, event) {
+            if (event) event.stopPropagation();
+            const newCatName = prompt(`修改分类名称：`, oldCatName);
+            if (newCatName && newCatName.trim() !== '' && newCatName.trim() !== oldCatName) {
+                const cleanCat = newCatName.trim();
+                if (categoryList.includes(cleanCat)) {
+                    alert("已存在同名分类！");
+                    return;
+                }
+
+                pushUndoState();
+
+                const idx = categoryList.indexOf(oldCatName);
+                if (idx !== -1) {
+                    categoryList[idx] = cleanCat;
+                }
+
+                allNotes.forEach(note => {
+                    if (note.category === oldCatName) {
+                        note.category = cleanCat;
+                    }
+                });
+
+                if (currentCategory === oldCatName) {
+                    currentCategory = cleanCat;
+                }
+
+                await saveCategoryList();
+                await localforage.setItem("xhs_v10_interactive_notes", allNotes);
+                renderCategories();
+                filterAndRender();
+                showToast("分类修改成功");
+            }
+        }
+
+        async function deleteCategory(catName, event) {
+            if (event) event.stopPropagation();
+            if (confirm(`确定要删除分类“${catName}”吗？\n删除后，该分类下的笔记将被自动归类到“城市生活 & 探店”。`)) {
+                pushUndoState();
+
+                categoryList = categoryList.filter(c => c !== catName);
+
+                const fallbackCat = categoryList[0] || '城市生活 & 探店';
+                allNotes.forEach(note => {
+                    if (note.category === catName) {
+                        note.category = fallbackCat;
+                    }
+                });
+
+                if (currentCategory === catName) {
+                    currentCategory = 'ALL';
+                }
+
+                await saveCategoryList();
+                await localforage.setItem("xhs_v10_interactive_notes", allNotes);
+                renderCategories();
+                filterAndRender();
+                showToast("分类已删除");
+            }
+        }
+
         function handleFileSelect(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -207,9 +428,10 @@
                 header: true,
                 skipEmptyLines: true,
                 complete: async function(results) {
+                    pushUndoState();
+                    showToast("正在处理导入数据...");
                     const newParsedNotes = processRawCSVData(results.data);
                     
-                    // 构建已有数据的 Quick Map
                     const existingMap = new Map();
                     allNotes.forEach(note => {
                         const key = note.link && note.link !== '#' ? note.link : note.title;
@@ -217,20 +439,16 @@
                     });
 
                     let addedCount = 0;
-                    let retainedCount = 0;
 
                     newParsedNotes.forEach(newNote => {
                         const key = newNote.link && newNote.link !== '#' ? newNote.link : newNote.title;
                         
                         if (existingMap.has(key)) {
-                            // 针对重复笔记：继承用户已经写过的分类、想法和自定义 Tag
                             const existingNote = existingMap.get(key);
                             existingNote.likes = newNote.likes || existingNote.likes;
                             existingNote.collects = newNote.collects || existingNote.collects;
-                            if (newNote.cover) existingNote.cover = fixUrlScheme(newNote.cover);
-                            retainedCount++;
+                            if (newNote.cover) existingNote.cover = newNote.cover;
                         } else {
-                            // 全新笔记：追加
                             allNotes.unshift(newNote);
                             addedCount++;
                         }
@@ -240,24 +458,13 @@
                     event.target.value = '';
                     renderCategories();
                     filterAndRender();
-                    alert(`🎉 智能增量合并完成！\n新增笔记: ${addedCount} 条\n保留原修改/想法: ${retainedCount} 条`);
+                    showToast(`新增 ${addedCount} 条笔记，正在转存本地图片...`);
+
+                    cacheMissingImages();
                 }
             });
         }
 
-        // 强制格式化 图片和链接协议 为 HTTPS
-        function fixUrlScheme(url) {
-            if (!url) return '';
-            if (url.startsWith('http://')) {
-                return url.replace('http://', 'https://');
-            }
-            if (url.startsWith('//')) {
-                return 'https:' + url;
-            }
-            return url;
-        }
-
-        // 关键词提取逻辑
         function extractKeywords(text, maxLength = 5) {
             if (!text) return [];
             const cleanText = text.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, ' ');
@@ -272,9 +479,8 @@
             return result;
         }
 
-        // 解析原始 CSV 行数据
         function processRawCSVData(rawData) {
-            return rawData.map((item, index) => {
+            return rawData.map((item) => {
                 const getVal = (keys) => {
                     for (let k of keys) {
                         for (let itemKey in item) {
@@ -289,8 +495,8 @@
                 const rawTagsStr = String(getVal(['tags', '标签', '话题', '原帖标签']) || '').trim();
                 
                 const author = String(getVal(['作者', 'author', '博主']) || '未知作者').trim();
-                const link = fixUrlScheme(String(getVal(['链接', 'link', 'url']) || '#').trim());
-                const cover = fixUrlScheme(String(getVal(['封面', 'cover', '图片']) || '').trim());
+                const link = String(getVal(['链接', 'link', 'url']) || '#').trim();
+                const rawCover = String(getVal(['封面', 'cover', '图片', '图片地址']) || '').trim();
                 const likes = parseInt(getVal(['点赞数', '点赞', 'likes', 'like_count']) || '0') || 0;
                 const collects = parseInt(getVal(['收藏数', '收藏', 'collects']) || '0') || 0;
 
@@ -329,11 +535,8 @@
                 }
 
                 if (!tag3) {
-                    if (likes > 10000) {
-                        tag3 = '爆款笔记';
-                    } else if (likes < 100 && likes > 0) {
-                        tag3 = '小众收藏';
-                    }
+                    if (likes > 10000) tag3 = '爆款笔记';
+                    else if (likes < 100 && likes > 0) tag3 = '小众收藏';
                 }
 
                 const finalTags = [tag1, tag2, tag3]
@@ -344,7 +547,10 @@
                 return {
                     id: 'note_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
                     title: title || '无标题笔记',
-                    author, link, cover, likes, collects,
+                    author, link, 
+                    cover: rawCover, 
+                    localCover: '',
+                    likes, collects,
                     category,
                     ai_tags: finalTags,
                     myThoughts: ''
@@ -352,7 +558,6 @@
             });
         }
 
-        // 渲染左侧分类
         function renderCategories() {
             const categoryMap = {};
             allNotes.forEach(note => {
@@ -368,16 +573,31 @@
                 </button>
             `;
 
-            Object.keys(PROMPT_CATEGORIES).forEach(cat => {
+            categoryList.forEach(cat => {
                 const count = categoryMap[cat] || 0;
-                const btn = document.createElement('button');
-                btn.onclick = () => switchCategory(cat);
-                btn.className = `w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition ${currentCategory === cat ? 'bg-red-50 text-red-600 font-bold' : 'text-gray-600 hover:bg-gray-100'}`;
-                btn.innerHTML = `
-                    <span class="flex items-center gap-2 truncate"><i data-lucide="folder" class="w-3.5 h-3.5"></i>${cat}</span>
-                    <span class="bg-gray-200/60 px-2 py-0.5 rounded-full text-[10px] text-gray-500">${count}</span>
+                const div = document.createElement('div');
+                const isSelected = currentCategory === cat;
+                div.className = `group w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition cursor-pointer ${isSelected ? 'bg-red-50 text-red-600 font-bold' : 'text-gray-600 hover:bg-gray-100'}`;
+                div.onclick = () => switchCategory(cat);
+                
+                div.innerHTML = `
+                    <span class="flex items-center gap-2 truncate flex-1 pr-2">
+                        <i data-lucide="folder" class="w-3.5 h-3.5 shrink-0"></i>
+                        <span class="truncate">${cat}</span>
+                    </span>
+                    <div class="flex items-center gap-1.5 shrink-0">
+                        <span class="bg-gray-200/60 px-2 py-0.5 rounded-full text-[10px] text-gray-500 group-hover:hidden">${count}</span>
+                        <div class="hidden group-hover:flex items-center gap-1 text-gray-400">
+                            <button onclick="editCategoryName('${cat}', event)" title="重命名" class="hover:text-blue-600 p-0.5 rounded transition">
+                                <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                            </button>
+                            <button onclick="deleteCategory('${cat}', event)" title="删除分类" class="hover:text-red-600 p-0.5 rounded transition">
+                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                            </button>
+                        </div>
+                    </div>
                 `;
-                container.appendChild(btn);
+                container.appendChild(div);
             });
 
             lucide.createIcons();
@@ -389,7 +609,6 @@
             filterAndRender();
         }
 
-        // 筛选并渲染卡片
         function filterAndRender() {
             const searchText = document.getElementById('searchInput').value.toLowerCase();
 
@@ -425,10 +644,12 @@
                 const card = document.createElement('div');
                 card.className = "break-inside-avoid mb-4 bg-white rounded-xl shadow-sm hover:shadow-md border border-gray-200/70 overflow-hidden transition group flex flex-col";
 
-                // 图片容错处理
-                const coverHtml = note.cover ? 
-                    `<div class="w-full bg-gray-100 overflow-hidden max-h-60 flex items-center justify-center">
-                        <img src="${note.cover}" class="w-full object-cover group-hover:scale-105 transition duration-300" onerror="this.parentElement.style.display='none'">
+                let displayImgUrl = note.localCover || (note.cover ? `https://images.weserv.nl/?url=${encodeURIComponent(formatUrl(note.cover))}` : '');
+
+                const coverHtml = (note.localCover || note.cover) ? 
+                    `<div class="w-full h-48 bg-gray-100 overflow-hidden relative">
+                        <img src="${displayImgUrl}" alt="封面" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" loading="lazy" onerror="this.onerror=null; this.parentElement.style.display='none';">
+                        ${note.localCover ? '<span class="absolute bottom-2 right-2 bg-black/60 backdrop-blur-sm text-white text-[9px] px-1.5 py-0.5 rounded">已保存在本地</span>' : ''}
                     </div>` : '';
 
                 const tagsHtml = note.ai_tags ? note.ai_tags.split(' ').map(t => `<span class="bg-red-50 text-red-600 text-[10px] font-medium px-2 py-0.5 rounded-md">${t}</span>`).join(' ') : '';
@@ -437,8 +658,7 @@
                     ${coverHtml}
                     <div class="p-3.5 flex flex-col justify-between flex-1">
                         <div>
-                            <div class="flex items-center justify-between text-[11px] text-gray-400 mb-1.5">
-                                <span class="bg-gray-100 text-gray-700 font-bold px-2 py-0.5 rounded-md">📁 ${note.category}</span>
+                            <div class="flex items-center justify-end text-[11px] text-gray-400 mb-1.5">
                                 <button onclick="openEditModal('${note.id}')" class="text-gray-400 hover:text-red-500 transition flex items-center gap-0.5">
                                     <i data-lucide="edit-2" class="w-3 h-3"></i> 编辑
                                 </button>
@@ -451,17 +671,18 @@
                             </div>
                         </div>
 
-                        <!-- “我的想法”栏目 (低饱和度浅灰样式) -->
-                        <div class="mt-3 bg-gray-50 rounded-lg p-2.5 border border-gray-200/80 text-xs">
-                            <div class="text-[10px] font-bold text-gray-500 mb-1 flex items-center justify-between">
+                        <div class="mt-3 bg-gray-50 rounded-lg p-2.5 border border-gray-200/80 text-xs flex flex-col gap-1.5">
+                            <div class="text-[10px] font-bold text-gray-500 flex items-center justify-between">
                                 <span class="flex items-center gap-1"><i data-lucide="pen-tool" class="w-3 h-3 text-gray-400"></i> 我的想法</span>
+                                <button onclick="saveThoughts('${note.id}')" class="text-gray-600 hover:text-gray-900 bg-gray-200/80 hover:bg-gray-300 px-2 py-0.5 rounded text-[10px] font-bold transition flex items-center gap-0.5">
+                                    <i data-lucide="check" class="w-3 h-3"></i> 保存
+                                </button>
                             </div>
-                            <textarea onchange="updateThoughts('${note.id}', this.value)" 
+                            <textarea id="thought-input-${note.id}"
                                       placeholder="记录对此笔记的想法、备忘或灵感..." 
-                                      class="w-full bg-transparent text-gray-700 text-xs focus:outline-none resize-none placeholder-gray-400 min-h-[40px] leading-relaxed">${note.myThoughts || ''}</textarea>
+                                      class="w-full bg-white border border-gray-200 rounded p-1.5 text-gray-700 text-xs focus:outline-none focus:ring-1 focus:ring-red-400 resize-none placeholder-gray-400 min-h-[42px] leading-relaxed">${note.myThoughts || ''}</textarea>
                         </div>
 
-                        <!-- 底部状态栏 -->
                         <div class="flex items-center justify-between mt-3 pt-2.5 text-[11px] text-gray-400 border-t border-gray-100">
                             <span class="text-gray-400 text-[11px]">${note.author || '小红书'}</span>
                             <a href="${note.link}" target="_blank" class="flex items-center gap-1 text-xs text-blue-600 hover:underline font-medium ml-auto">
@@ -473,29 +694,37 @@
                 container.appendChild(card);
             });
 
+            // 渲染完毕后应用当前的列数设置
+            changeColumns(currentCols);
             lucide.createIcons();
         }
 
-        // 保存“我的想法”
-        async function updateThoughts(noteId, val) {
+        async function saveThoughts(noteId) {
+            const textarea = document.getElementById(`thought-input-${noteId}`);
+            if (!textarea) return;
+
+            const val = textarea.value;
             const note = allNotes.find(n => n.id === noteId);
             if (note) {
+                pushUndoState();
                 note.myThoughts = val;
                 await localforage.setItem("xhs_v10_interactive_notes", allNotes);
+                showToast("保存成功");
             }
         }
 
-        // 编辑分类与 Tag 弹窗
         function openEditModal(noteId) {
             const note = allNotes.find(n => n.id === noteId);
             if (!note) return;
 
             document.getElementById('editNoteId').value = noteId;
+            document.getElementById('editTitleInput').value = note.title || '';
+            document.getElementById('editCoverInput').value = note.cover || '';
             document.getElementById('editTagsInput').value = note.ai_tags || '';
 
             const select = document.getElementById('editCategorySelect');
             select.innerHTML = '';
-            Object.keys(PROMPT_CATEGORIES).forEach(cat => {
+            categoryList.forEach(cat => {
                 const opt = document.createElement('option');
                 opt.value = cat;
                 opt.innerText = cat;
@@ -512,36 +741,58 @@
 
         async function saveNoteEdit() {
             const noteId = document.getElementById('editNoteId').value;
-            const newCat = document.getElementById('editCategorySelect').value;
-            const newTags = document.getElementById('editTagsInput').value.trim();
-
             const note = allNotes.find(n => n.id === noteId);
-            if (note) {
-                note.category = newCat;
-                note.ai_tags = newTags;
-                await localforage.setItem("xhs_v10_interactive_notes", allNotes);
-                closeEditModal();
-                renderCategories();
-                filterAndRender();
+            if (!note) return;
+
+            pushUndoState();
+
+            note.title = document.getElementById('editTitleInput').value.trim() || '无标题笔记';
+            note.category = document.getElementById('editCategorySelect').value;
+            
+            const newCover = document.getElementById('editCoverInput').value.trim();
+            if (newCover !== note.cover) {
+                note.cover = newCover;
+                note.localCover = '';
             }
+
+            let tagsVal = document.getElementById('editTagsInput').value.trim();
+            if (tagsVal) {
+                note.ai_tags = tagsVal.split(/\s+/).map(t => t.startsWith('#') ? t : `#${t}`).join(' ');
+            } else {
+                note.ai_tags = '';
+            }
+
+            await localforage.setItem("xhs_v10_interactive_notes", allNotes);
+            closeEditModal();
+            renderCategories();
+            filterAndRender();
+            showToast("修改已保存");
+
+            cacheMissingImages();
         }
 
-        // 导出整站完整数据备份
         function exportBackupJSON() {
             if (allNotes.length === 0) {
-                alert("目前没有数据可供备份！");
+                alert("当前暂无可导出的数据！");
                 return;
             }
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(allNotes, null, 2));
-            const downloadAnchor = document.createElement('a');
-            downloadAnchor.setAttribute("href", dataStr);
-            downloadAnchor.setAttribute("download", `小红书收藏备份_${new Date().toISOString().slice(0,10)}.json`);
-            document.body.appendChild(downloadAnchor);
-            downloadAnchor.click();
-            downloadAnchor.remove();
+            const backupData = {
+                version: "1.2",
+                exportTime: new Date().toISOString(),
+                categories: categoryList,
+                notes: allNotes
+            };
+            const jsonStr = JSON.stringify(backupData, null, 2);
+            const blob = new Blob([jsonStr], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `小红书收藏夹备份_含本地图片_${new Date().toISOString().slice(0,10)}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast("导出备份成功");
         }
 
-        // 导入 JSON 恢复备份
         function handleJSONImport(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -549,28 +800,37 @@
             const reader = new FileReader();
             reader.onload = async function(e) {
                 try {
-                    const imported = JSON.parse(e.target.result);
-                    if (Array.isArray(imported)) {
-                        allNotes = imported;
+                    const data = JSON.parse(e.target.result);
+                    if (data && Array.isArray(data.notes)) {
+                        pushUndoState();
+                        allNotes = data.notes;
+                        if (Array.isArray(data.categories)) {
+                            categoryList = Array.from(new Set([...categoryList, ...data.categories]));
+                            await saveCategoryList();
+                        }
                         await localforage.setItem("xhs_v10_interactive_notes", allNotes);
+                        event.target.value = '';
                         renderCategories();
                         filterAndRender();
-                        alert("✅ 备份恢复成功！");
+                        showToast("恢复备份成功");
+                    } else {
+                        alert("无效的备份文件格式！");
                     }
                 } catch(err) {
-                    alert("❌ 导入备份失败，JSON 格式不正确。");
+                    alert("解析备份文件失败！");
                 }
             };
             reader.readAsText(file);
         }
 
         async function clearData() {
-            if (confirm("确定要清空本地所有的小红书数据吗？此操作无法撤销。")) {
+            if (confirm("确定要清空本地所有已整理的笔记数据吗？此操作无法撤销！")) {
+                pushUndoState();
                 await localforage.removeItem("xhs_v10_interactive_notes");
                 allNotes = [];
-                currentCategory = 'ALL';
                 renderCategories();
                 filterAndRender();
+                showToast("已清空所有数据");
             }
         }
     </script>
