@@ -51,10 +51,16 @@
             <span class="bg-emerald-50 text-emerald-600 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200">图片自动转存本地</span>
         </div>
         <div class="flex items-center gap-3">
-            <button onclick="undoAction()" class="bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs px-3 py-2 rounded-lg font-medium transition flex items-center gap-1">
+            <button id="undoBtn" onclick="undoAction()" disabled title="撤回 (Ctrl+Z)" class="bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed text-xs px-3 py-2 rounded-lg font-medium transition flex items-center gap-1">
                 <i data-lucide="undo-2" class="w-3.5 h-3.5"></i>
-                <span>撤回 (Ctrl+Z)</span>
+                <span>撤回</span>
             </button>
+            <button id="redoBtn" onclick="redoAction()" disabled title="恢复 (Ctrl+Y)" class="bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed text-xs px-3 py-2 rounded-lg font-medium transition flex items-center gap-1">
+                <i data-lucide="redo-2" class="w-3.5 h-3.5"></i>
+                <span>恢复</span>
+            </button>
+
+            <div class="h-4 w-[1px] bg-gray-200 mx-1"></div>
 
             <button onclick="document.getElementById('csvFileInput').click()" class="xhs-bg text-white text-xs px-3.5 py-2 rounded-lg font-medium hover:opacity-90 transition flex items-center gap-1.5 shadow-sm">
                 <i data-lucide="file-plus" class="w-4 h-4"></i>
@@ -174,6 +180,7 @@
         let currentCols = '4';
         let toastTimer = null;
         let undoStack = [];
+        let redoStack = [];
 
         let categoryList = [
             'AI工具 & 科技', '副业搞钱 & 商业', '求职面试 & 职场', '自我提升 & 认知',
@@ -203,7 +210,6 @@
 
         document.addEventListener("DOMContentLoaded", async () => {
             lucide.createIcons();
-            // 初始化列数显示
             changeColumns(currentCols);
 
             try {
@@ -230,18 +236,26 @@
                 }
             } catch(e) { console.error(e); }
 
+            updateUndoRedoButtons();
+
             document.addEventListener('keydown', (e) => {
-                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-                    const activeTag = document.activeElement.tagName.toLowerCase();
-                    if (activeTag !== 'input' && activeTag !== 'textarea') {
+                const activeTag = document.activeElement.tagName.toLowerCase();
+                if (activeTag !== 'input' && activeTag !== 'textarea') {
+                    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
                         e.preventDefault();
-                        undoAction();
+                        if (e.shiftKey) {
+                            redoAction();
+                        } else {
+                            undoAction();
+                        }
+                    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+                        e.preventDefault();
+                        redoAction();
                     }
                 }
             });
         });
 
-        // 强行用原生 CSS 内联设置列数，突破任何 Media Query 限制
         function changeColumns(cols) {
             currentCols = cols;
             const container = document.getElementById('notesContainer');
@@ -307,6 +321,8 @@
                 notes: JSON.parse(JSON.stringify(allNotes)),
                 categories: [...categoryList]
             });
+            redoStack = []; 
+            updateUndoRedoButtons();
         }
 
         async function undoAction() {
@@ -314,6 +330,11 @@
                 showToast("没有可撤回的操作");
                 return;
             }
+            redoStack.push({
+                notes: JSON.parse(JSON.stringify(allNotes)),
+                categories: [...categoryList]
+            });
+
             const previousState = undoStack.pop();
             allNotes = previousState.notes;
             categoryList = previousState.categories;
@@ -323,7 +344,38 @@
 
             renderCategories();
             filterAndRender();
-            showToast("已成功撤回上一步");
+            updateUndoRedoButtons();
+            showToast("已成功撤回");
+        }
+
+        async function redoAction() {
+            if (redoStack.length === 0) {
+                showToast("没有可恢复的操作");
+                return;
+            }
+            undoStack.push({
+                notes: JSON.parse(JSON.stringify(allNotes)),
+                categories: [...categoryList]
+            });
+
+            const nextState = redoStack.pop();
+            allNotes = nextState.notes;
+            categoryList = nextState.categories;
+
+            await localforage.setItem("xhs_custom_categories", categoryList);
+            await localforage.setItem("xhs_v10_interactive_notes", allNotes);
+
+            renderCategories();
+            filterAndRender();
+            updateUndoRedoButtons();
+            showToast("已成功恢复");
+        }
+
+        function updateUndoRedoButtons() {
+            const undoBtn = document.getElementById('undoBtn');
+            const redoBtn = document.getElementById('redoBtn');
+            if (undoBtn) undoBtn.disabled = undoStack.length === 0;
+            if (redoBtn) redoBtn.disabled = redoStack.length === 0;
         }
 
         function showToast(message = "保存成功") {
@@ -465,6 +517,25 @@
             });
         }
 
+        // 智能解析带单位的数字（如 "10万", "1.5w", "1200"）
+        function parseCountNumber(rawVal) {
+            if (!rawVal) return 0;
+            const str = String(rawVal).trim().toLowerCase();
+            const num = parseFloat(str.replace(/[^0-9.]/g, '')) || 0;
+            if (str.includes('万') || str.includes('w')) {
+                return Math.round(num * 10000);
+            }
+            return Math.round(num);
+        }
+
+        // 格式化展示点赞数（如 100000 显示为 10.0w）
+        function formatCountDisplay(count) {
+            if (count >= 10000) {
+                return (count / 10000).toFixed(1) + 'w';
+            }
+            return count;
+        }
+
         function extractKeywords(text, maxLength = 5) {
             if (!text) return [];
             const cleanText = text.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, ' ');
@@ -497,8 +568,10 @@
                 const author = String(getVal(['作者', 'author', '博主']) || '未知作者').trim();
                 const link = String(getVal(['链接', 'link', 'url']) || '#').trim();
                 const rawCover = String(getVal(['封面', 'cover', '图片', '图片地址']) || '').trim();
-                const likes = parseInt(getVal(['点赞数', '点赞', 'likes', 'like_count']) || '0') || 0;
-                const collects = parseInt(getVal(['收藏数', '收藏', 'collects']) || '0') || 0;
+                
+                // 使用智能解析函数，正确处理“万”或“w”单位
+                const likes = parseCountNumber(getVal(['点赞数', '点赞', 'likes', 'like_count', 'liked_count']));
+                const collects = parseCountNumber(getVal(['收藏数', '收藏', 'collects']));
 
                 const fullText = (title + ' ' + remark + ' ' + rawTagsStr).toLowerCase();
 
@@ -649,29 +722,35 @@
                 const coverHtml = (note.localCover || note.cover) ? 
                     `<div class="w-full h-48 bg-gray-100 overflow-hidden relative">
                         <img src="${displayImgUrl}" alt="封面" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" loading="lazy" onerror="this.onerror=null; this.parentElement.style.display='none';">
-                        ${note.localCover ? '<span class="absolute bottom-2 right-2 bg-black/60 backdrop-blur-sm text-white text-[9px] px-1.5 py-0.5 rounded">已保存在本地</span>' : ''}
                     </div>` : '';
 
                 const tagsHtml = note.ai_tags ? note.ai_tags.split(' ').map(t => `<span class="bg-red-50 text-red-600 text-[10px] font-medium px-2 py-0.5 rounded-md">${t}</span>`).join(' ') : '';
 
                 card.innerHTML = `
                     ${coverHtml}
-                    <div class="p-3.5 flex flex-col justify-between flex-1">
+                    <div class="p-3 flex flex-col justify-between flex-1">
                         <div>
-                            <div class="flex items-center justify-end text-[11px] text-gray-400 mb-1.5">
+                            <!-- 点赞数展示（带格式化 w 单位） -->
+                            <div class="flex items-center justify-between text-[11px] text-gray-400 mb-1">
+                                <div class="flex items-center gap-1 text-gray-500 font-medium">
+                                    <i data-lucide="heart" class="w-3.5 h-3.5 text-red-500 fill-red-500"></i>
+                                    <span>${formatCountDisplay(note.likes || 0)}</span>
+                                </div>
                                 <button onclick="openEditModal('${note.id}')" class="text-gray-400 hover:text-red-500 transition flex items-center gap-0.5">
                                     <i data-lucide="edit-2" class="w-3 h-3"></i> 编辑
                                 </button>
                             </div>
+                            
                             <h3 class="text-xs font-bold text-gray-800 line-clamp-2 leading-snug hover:text-red-500 transition">
                                 ${note.title}
                             </h3>
-                            <div class="flex flex-wrap gap-1.5 mt-2.5">
+                            <div class="flex flex-wrap gap-1.5 mt-2">
                                 ${tagsHtml}
                             </div>
                         </div>
 
-                        <div class="mt-3 bg-gray-50 rounded-lg p-2.5 border border-gray-200/80 text-xs flex flex-col gap-1.5">
+                        <!-- 想法区域：已压缩边距，放大文本框占比 -->
+                        <div class="mt-2.5 bg-gray-50 rounded-lg p-2 border border-gray-200/80 text-xs flex flex-col gap-1">
                             <div class="text-[10px] font-bold text-gray-500 flex items-center justify-between">
                                 <span class="flex items-center gap-1"><i data-lucide="pen-tool" class="w-3 h-3 text-gray-400"></i> 我的想法</span>
                                 <button onclick="saveThoughts('${note.id}')" class="text-gray-600 hover:text-gray-900 bg-gray-200/80 hover:bg-gray-300 px-2 py-0.5 rounded text-[10px] font-bold transition flex items-center gap-0.5">
@@ -680,11 +759,12 @@
                             </div>
                             <textarea id="thought-input-${note.id}"
                                       placeholder="记录对此笔记的想法、备忘或灵感..." 
-                                      class="w-full bg-white border border-gray-200 rounded p-1.5 text-gray-700 text-xs focus:outline-none focus:ring-1 focus:ring-red-400 resize-none placeholder-gray-400 min-h-[42px] leading-relaxed">${note.myThoughts || ''}</textarea>
+                                      class="w-full bg-white border border-gray-200 rounded p-1.5 text-gray-700 text-xs focus:outline-none focus:ring-1 focus:ring-red-400 resize-none placeholder-gray-400 min-h-[68px] leading-relaxed">${note.myThoughts || ''}</textarea>
                         </div>
 
-                        <div class="flex items-center justify-between mt-3 pt-2.5 text-[11px] text-gray-400 border-t border-gray-100">
-                            <span class="text-gray-400 text-[11px]">${note.author || '小红书'}</span>
+                        <!-- 底部栏保留作者与打开原文 -->
+                        <div class="flex items-center justify-between mt-2.5 pt-2 text-[11px] text-gray-400 border-t border-gray-100">
+                            <span class="text-gray-400 text-[11px] truncate max-w-[140px]">${note.author || '小红书'}</span>
                             <a href="${note.link}" target="_blank" class="flex items-center gap-1 text-xs text-blue-600 hover:underline font-medium ml-auto">
                                 打开原文 <i data-lucide="external-link" class="w-3 h-3"></i>
                             </a>
@@ -694,7 +774,6 @@
                 container.appendChild(card);
             });
 
-            // 渲染完毕后应用当前的列数设置
             changeColumns(currentCols);
             lucide.createIcons();
         }
@@ -777,7 +856,7 @@
                 return;
             }
             const backupData = {
-                version: "1.2",
+                version: "1.3",
                 exportTime: new Date().toISOString(),
                 categories: categoryList,
                 notes: allNotes
