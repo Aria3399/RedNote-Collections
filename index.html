@@ -747,6 +747,19 @@ init();
             }
         }
 
+        // 新增：删除单张笔记卡片（支持撤回）
+        async function deleteNoteCard(noteId, event) {
+            if (event) event.stopPropagation();
+            if (confirm("确定要在本地看板中移除这篇收藏的笔记吗？（误删后可点击顶部“撤回”恢复）")) {
+                pushUndoState();
+                allNotes = allNotes.filter(n => n.id !== noteId);
+                await localforage.setItem("xhs_v10_interactive_notes", allNotes);
+                renderCategories();
+                filterAndRender();
+                showToast("已从看板中移除");
+            }
+        }
+
         function handleFileSelect(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -792,7 +805,6 @@ init();
             });
         }
 
-        // 智能解析带单位的数字（如 "10万", "1.5w", "1200"）
         function parseCountNumber(rawVal) {
             if (!rawVal) return 0;
             const str = String(rawVal).trim().toLowerCase();
@@ -803,7 +815,6 @@ init();
             return Math.round(num);
         }
 
-        // 格式化展示点赞数（如 100000 显示为 10.0w）
         function formatCountDisplay(count) {
             if (count >= 10000) {
                 return (count / 10000).toFixed(1) + 'w';
@@ -989,18 +1000,30 @@ init();
 
             filtered.forEach(note => {
                 const card = document.createElement('div');
-                card.className = "break-inside-avoid mb-4 bg-white rounded-xl shadow-sm hover:shadow-md border border-gray-200/70 overflow-hidden transition group flex flex-col";
+                card.className = "break-inside-avoid mb-4 bg-white rounded-xl shadow-sm hover:shadow-md border border-gray-200/70 overflow-hidden transition group flex flex-col relative";
 
                 let displayImgUrl = note.localCover || (note.cover ? `https://images.weserv.nl/?url=${encodeURIComponent(formatUrl(note.cover))}` : '');
 
+                // 右上角添加的小叉删除按钮
+                const deleteButtonHtml = `
+                    <button onclick="deleteNoteCard('${note.id}', event)" title="从本地看板移除" class="absolute top-2 right-2 z-20 bg-black/60 hover:bg-red-600 text-white p-1.5 rounded-full backdrop-blur-sm opacity-0 group-hover:opacity-100 transition shadow-lg">
+                        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                    </button>
+                `;
+
                 const coverHtml = (note.localCover || note.cover) ? 
                     `<div class="w-full h-48 bg-gray-100 overflow-hidden relative">
+                        ${deleteButtonHtml}
                         <img src="${displayImgUrl}" alt="封面" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" loading="lazy" onerror="this.onerror=null; this.parentElement.style.display='none';">
                     </div>` : '';
+
+                // 如果没有封面，也需要把删除按钮放在卡片顶部右侧
+                const noCoverDeleteBtn = (!note.localCover && !note.cover) ? deleteButtonHtml : '';
 
                 const tagsHtml = note.ai_tags ? note.ai_tags.split(' ').map(t => `<span class="bg-red-50 text-red-600 text-[10px] font-medium px-2 py-0.5 rounded-md">${t}</span>`).join(' ') : '';
 
                 card.innerHTML = `
+                    ${noCoverDeleteBtn}
                     ${coverHtml}
                     <div class="p-3 flex flex-col justify-between flex-1">
                         <div>
