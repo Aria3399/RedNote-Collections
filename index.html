@@ -457,11 +457,13 @@ init();
         let undoStack = [];
         let redoStack = [];
 
-        let categoryList = [
+        // 默认初始分类列表
+        const DEFAULT_CATEGORIES = [
             'AI工具 & 科技', '副业搞钱 & 商业', '求职面试 & 职场', '自我提升 & 认知',
             '养生健康 & 变美', '旅行攻略 & 摄影', '美食料理 & 探店', '小说推文 & 阅读',
             '动漫影视 & 娱乐', '生活妙招 & 手工', '留学移民 & 海外生活', '城市生活 & 探店'
         ];
+        let categoryList = [...DEFAULT_CATEGORIES];
 
         const PROMPT_CATEGORIES = {
             'AI工具 & 科技': ['ai', 'chatgpt', '提示词', 'midjourney', '代码', 'python', '编程', '软件', '工具', '黑科技', 'github', '大模型', 'prompt', '自动化', '科技', '数码', '算法'],
@@ -488,14 +490,16 @@ init();
             changeColumns(currentCols);
 
             try {
+                // 【核心修复】：优先从本地存储加载分类列表，避免每次刷新被硬编码覆盖
                 const savedCats = await localforage.getItem("xhs_custom_categories");
                 if (savedCats && Array.isArray(savedCats)) {
-                    categoryList = Array.from(new Set([...categoryList, ...savedCats]));
+                    categoryList = savedCats;
                 }
 
                 const savedData = await localforage.getItem("xhs_v10_interactive_notes");
                 if (savedData && savedData.length > 0) {
                     allNotes = savedData;
+                    // 确保笔记里可能带有的特殊分类也不会漏掉
                     allNotes.forEach(n => {
                         if (n.category && !categoryList.includes(n.category)) {
                             categoryList.push(n.category);
@@ -723,12 +727,14 @@ init();
 
         async function deleteCategory(catName, event) {
             if (event) event.stopPropagation();
-            if (confirm(`确定要删除分类“${catName}”吗？\n删除后，该分类下的笔记将被自动归类到“城市生活 & 探店”。`)) {
+            // 获取一个备用分类（如果当前分类被删，归到剩余的第一个分类或默认兜底）
+            const fallbackCat = categoryList.filter(c => c !== catName)[0] || '默认分类';
+
+            if (confirm(`确定要删除分类“${catName}”吗？\n删除后，该分类下的笔记将被自动归类到其他可用分类中。`)) {
                 pushUndoState();
 
                 categoryList = categoryList.filter(c => c !== catName);
 
-                const fallbackCat = categoryList[0] || '城市生活 & 探店';
                 allNotes.forEach(note => {
                     if (note.category === catName) {
                         note.category = fallbackCat;
@@ -747,7 +753,6 @@ init();
             }
         }
 
-        // 新增：删除单张笔记卡片（支持撤回）
         async function deleteNoteCard(noteId, event) {
             if (event) event.stopPropagation();
             if (confirm("确定要在本地看板中移除这篇收藏的笔记吗？（误删后可点击顶部“撤回”恢复）")) {
@@ -860,11 +865,14 @@ init();
 
                 const fullText = (title + ' ' + remark + ' ' + rawTagsStr).toLowerCase();
 
-                let category = '城市生活 & 探店';
+                let category = categoryList[0] || '城市生活 & 探店';
                 for (let [catName, keywords] of Object.entries(PROMPT_CATEGORIES)) {
                     if (keywords.some(kw => fullText.includes(kw.toLowerCase()))) {
-                        category = catName;
-                        break;
+                        // 确保匹配到的分类在当前用户的分类列表中存在，如果被删了则跳过或Fallback
+                        if (categoryList.includes(catName)) {
+                            category = catName;
+                            break;
+                        }
                     }
                 }
 
@@ -1004,7 +1012,6 @@ init();
 
                 let displayImgUrl = note.localCover || (note.cover ? `https://images.weserv.nl/?url=${encodeURIComponent(formatUrl(note.cover))}` : '');
 
-                // 右上角添加的小叉删除按钮
                 const deleteButtonHtml = `
                     <button onclick="deleteNoteCard('${note.id}', event)" title="从本地看板移除" class="absolute top-2 right-2 z-20 bg-black/60 hover:bg-red-600 text-white p-1.5 rounded-full backdrop-blur-sm opacity-0 group-hover:opacity-100 transition shadow-lg">
                         <i data-lucide="x" class="w-3.5 h-3.5"></i>
@@ -1017,7 +1024,6 @@ init();
                         <img src="${displayImgUrl}" alt="封面" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" loading="lazy" onerror="this.onerror=null; this.parentElement.style.display='none';">
                     </div>` : '';
 
-                // 如果没有封面，也需要把删除按钮放在卡片顶部右侧
                 const noCoverDeleteBtn = (!note.localCover && !note.cover) ? deleteButtonHtml : '';
 
                 const tagsHtml = note.ai_tags ? note.ai_tags.split(' ').map(t => `<span class="bg-red-50 text-red-600 text-[10px] font-medium px-2 py-0.5 rounded-md">${t}</span>`).join(' ') : '';
