@@ -58,12 +58,22 @@
                     <span>获取抓取脚本</span>
                     <i data-lucide="chevron-down" class="w-3 h-3"></i>
                 </button>
-                <div class="absolute right-0 mt-1 w-52 bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 hidden group-hover:block z-50 text-xs">
+                <div class="absolute right-0 mt-1 w-64 bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 hidden group-hover:block z-50 text-xs">
+                    <div class="px-3 py-1 text-[10px] text-gray-400 font-bold uppercase tracking-wider">收藏夹抓取脚本</div>
                     <button onclick="copyScriptCode()" class="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-                        <i data-lucide="copy" class="w-3.5 h-3.5 text-gray-400"></i> 一键复制脚本源码
+                        <i data-lucide="copy" class="w-3.5 h-3.5 text-gray-400"></i> 复制收藏夹脚本源码
                     </button>
                     <button onclick="downloadScriptFile()" class="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
-                        <i data-lucide="download" class="w-3.5 h-3.5 text-gray-400"></i> 下载脚本文件 (.user.js)
+                        <i data-lucide="download" class="w-3.5 h-3.5 text-gray-400"></i> 下载收藏夹脚本文件 (.user.js)
+                    </button>
+                    
+                    <div class="border-t border-gray-100 my-1"></div>
+                    <div class="px-3 py-1 text-[10px] text-gray-400 font-bold uppercase tracking-wider">作者主页抓取工具 (可选)</div>
+                    <button onclick="copyAuthorScriptCode()" class="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+                        <i data-lucide="copy" class="w-3.5 h-3.5 text-gray-400"></i> 复制作者主页脚本源码
+                    </button>
+                    <button onclick="downloadAuthorScriptFile()" class="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
+                        <i data-lucide="download" class="w-3.5 h-3.5 text-gray-400"></i> 下载作者主页脚本文件 (.user.js)
                     </button>
                 </div>
             </div>
@@ -83,9 +93,9 @@
 
             <button onclick="document.getElementById('csvFileInput').click()" class="xhs-bg text-white text-xs px-3.5 py-2 rounded-lg font-medium hover:opacity-90 transition flex items-center gap-1.5 shadow-sm">
                 <i data-lucide="file-plus" class="w-4 h-4"></i>
-                <span>导入新 CSV (增量合并)</span>
+                <span>导入新 CSV / JSON (增量合并)</span>
             </button>
-            <input type="file" id="csvFileInput" accept=".csv" class="hidden" onchange="handleFileSelect(event)">
+            <input type="file" id="csvFileInput" accept=".csv,.json" class="hidden" onchange="handleFileSelect(event)">
             
             <button onclick="exportBackupJSON()" class="bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs px-3 py-2 rounded-lg font-medium transition flex items-center gap-1">
                 <i data-lucide="download" class="w-3.5 h-3.5"></i>
@@ -153,7 +163,7 @@
 
             <div id="emptyState" class="hidden flex-1 flex flex-col items-center justify-center text-gray-400 py-20">
                 <i data-lucide="folder-open" class="w-12 h-12 mb-3 text-gray-300"></i>
-                <p class="text-sm font-medium">暂无笔记，请导入 CSV 文件</p>
+                <p class="text-sm font-medium">暂无笔记，请导入 CSV 或 JSON 文件</p>
             </div>
         </main>
     </div>
@@ -194,7 +204,7 @@
     </div>
 
     <script>
-        // ----------------- 篡改猴脚本源码内置 -----------------
+        // ----------------- 1. 收藏夹抓取脚本源码内置 -----------------
         const tampermonkeyScriptCode = `// ==UserScript==
 // @name XHS Collected Notes Exporter
 // @namespace https://tampermonkey.net/
@@ -430,12 +440,249 @@ init();
 }
 })();`;
 
+        // ----------------- 2. 作者主页抓取脚本源码内置 -----------------
+        const authorScriptCode = `// ==UserScript==
+// @name         小红书博主文章一键同步到看板
+// @namespace    http://tampermonkey.net/
+// @version      1.1
+// @description  在小红书博主主页自动滚动并抓取全部笔记，直接生成看板可识别的分类与数据，支持一键导出或同步
+// @author       You
+// @match        https://www.xiaohongshu.com/user/profile/*
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_registerMenuCommand
+// @run-at       document-end
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    const style = document.createElement('style');
+    style.innerHTML = \`
+        #xhs-sync-panel {
+            position: fixed !important;
+            left: 18px !important;
+            top: 18px !important;
+            z-index: 2147483647 !important;
+            width: 220px !important;
+            padding: 14px !important;
+            border-radius: 12px !important;
+            background: #18181b !important;
+            color: #fff !important;
+            box-shadow: 0 10px 30px rgba(0,0,0,.22) !important;
+            font-size: 13px !important;
+            line-height: 1.4 !important;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+        }
+        #xhs-sync-panel h3 {
+            margin: 0 0 10px 0 !important;
+            font-size: 14px !important;
+            font-weight: 600 !important;
+            color: #ff2442 !important;
+            display: flex !important;
+            justify-content: space-between !important;
+            align-items: center !important;
+        }
+        #xhs-sync-panel #close-panel {
+            cursor: pointer;
+            color: #a1a1aa;
+            font-size: 13px;
+        }
+        #xhs-sync-panel #close-panel:hover {
+            color: #fff;
+        }
+        #xhs-sync-panel .status-text {
+            font-size: 12px !important;
+            margin-bottom: 10px !important;
+            color: #a1a1aa !important;
+            line-height: 1.4 !important;
+        }
+        #xhs-sync-panel .input-label {
+            font-size: 11px !important;
+            color: #a1a1aa !important;
+            margin-bottom: 4px !important;
+        }
+        #xhs-sync-panel input[type="text"] {
+            width: 100% !important;
+            box-sizing: border-box !important;
+            padding: 6px 8px !important;
+            background: #27272a !important;
+            border: 1px solid #3f3f46 !important;
+            border-radius: 6px !important;
+            color: #fff !important;
+            font-size: 12px !important;
+            margin-bottom: 10px !important;
+            outline: none;
+        }
+        #xhs-sync-panel input[type="text"]:focus {
+            border-color: #ff2442 !important;
+        }
+        #xhs-sync-panel button {
+            width: 100% !important;
+            background: #ff2442 !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 8px !important;
+            padding: 8px 0 !important;
+            font-size: 13px !important;
+            cursor: pointer !important;
+            font-weight: 500 !important;
+            margin-bottom: 6px !important;
+            transition: opacity 0.2s;
+        }
+        #xhs-sync-panel button:hover {
+            opacity: 0.9;
+        }
+        #xhs-sync-panel button:disabled {
+            background: #3f3f46 !important;
+            color: #71717a !important;
+            cursor: not-allowed !important;
+        }
+    \`;
+    document.head.appendChild(style);
+
+    let isRunning = false;
+    let collectedNotes = [];
+
+    function createPanel() {
+        if (document.getElementById('xhs-sync-panel')) return;
+
+        const panel = document.createElement('div');
+        panel.id = 'xhs-sync-panel';
+        panel.innerHTML = \`
+            <h3>小红书看板同步助手 <span id="close-panel">✕</span></h3>
+            <div class="status-text" id="xhs-status">准备就绪。请进入博主主页后点击开始。</div>
+            <div class="input-label">左侧看板栏分类命名：</div>
+            <input type="text" id="xhs-category-name" value="加载中..." placeholder="博主名称">
+            <button id="xhs-start-btn">开始滚动并抓取全部文章</button>
+            <button id="xhs-export-btn" style="background: #27272a; border: 1px solid #3f3f46; display:none;">下载JSON文件</button>
+        \`;
+        document.body.appendChild(panel);
+
+        document.getElementById('close-panel').onclick = () => panel.remove();
+        setTimeout(updateAuthorName, 2000);
+
+        document.getElementById('xhs-start-btn').onclick = startScraping;
+        document.getElementById('xhs-export-btn').onclick = exportToBoard;
+    }
+
+    function getAuthorName() {
+        const nameEl = document.querySelector('.user-name') || document.querySelector('.info-name') || document.querySelector('.name');
+        return nameEl ? nameEl.innerText.trim() : '某小红书博主';
+    }
+
+    function updateAuthorName() {
+        const input = document.getElementById('xhs-category-name');
+        if (input) {
+            input.value = getAuthorName();
+        }
+    }
+
+    async function startScraping() {
+        if (isRunning) return;
+        isRunning = true;
+        collectedNotes = [];
+
+        const startBtn = document.getElementById('xhs-start-btn');
+        const statusEl = document.getElementById('xhs-status');
+        startBtn.disabled = true;
+        startBtn.innerText = '正在自动滚动抓取中...';
+
+        let lastHeight = 0;
+        let noNewDataCount = 0;
+
+        const scrollTimer = setInterval(async () => {
+            window.scrollTo(0, document.body.scrollHeight);
+            extractNotesFromDOM();
+
+            statusEl.innerHTML = \`已发现 <b>\${collectedNotes.length}</b> 篇笔记，正在向下滚动...\`;
+
+            let currentHeight = document.body.scrollHeight;
+            if (currentHeight === lastHeight) {
+                noNewDataCount++;
+                if (noNewDataCount >= 3) {
+                    clearInterval(scrollTimer);
+                    finishScraping();
+                }
+            } else {
+                noNewDataCount = 0;
+                lastHeight = currentHeight;
+            }
+        }, 1500);
+    }
+
+    function extractNotesFromDOM() {
+        const cards = document.querySelectorAll('.note-item, section.item, .cover-wrapper');
+        cards.forEach(card => {
+            const linkEl = card.querySelector('a[href*="/explore/"], a.title, a');
+            const titleEl = card.querySelector('.title, .footer span, .title span');
+            const imgEl = card.querySelector('img');
+            const likeEl = card.querySelector('.count, .like-wrapper .count');
+
+            if (linkEl) {
+                let href = linkEl.getAttribute('href');
+                if (href && !href.startsWith('http')) {
+                    href = 'https://www.xiaohongshu.com' + href;
+                }
+                
+                if (href && !collectedNotes.some(n => n.url === href)) {
+                    collectedNotes.push({
+                        title: titleEl ? titleEl.innerText.trim() : (linkEl.innerText.trim() || '无标题笔记'),
+                        url: href,
+                        cover: imgEl ? (imgEl.src || imgEl.getAttribute('data-src')) : '',
+                        likes: likeEl ? likeEl.innerText.trim() : '0',
+                        createTime: new Date().toISOString()
+                    });
+                }
+            }
+        });
+    }
+
+    function finishScraping() {
+        isRunning = false;
+        const startBtn = document.getElementById('xhs-start-btn');
+        const statusEl = document.getElementById('xhs-status');
+        const exportBtn = document.getElementById('xhs-export-btn');
+
+        startBtn.innerText = '抓取完毕';
+        startBtn.style.background = '#27272a';
+        startBtn.style.color = '#71717a';
+        statusEl.innerHTML = \`抓取完成！共获得 <b>\${collectedNotes.length}</b> 篇文章。\`;
+        exportBtn.style.display = 'block';
+    }
+
+    function exportToBoard() {
+        const categoryName = document.getElementById('xhs-category-name').value || getAuthorName();
+        
+        const exportData = {
+            category: categoryName,
+            source: "小红书",
+            exportTime: new Date().toLocaleString(),
+            total: collectedNotes.length,
+            items: collectedNotes
+        };
+
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
+        const downloadAnchor = document.createElement('a');
+        downloadAnchor.setAttribute("href", dataStr);
+        downloadAnchor.setAttribute("download", \`小红书看板_\${categoryName}.json\`);
+        document.body.appendChild(downloadAnchor);
+        downloadAnchor.click();
+        downloadAnchor.remove();
+    }
+
+    window.addEventListener('load', () => {
+        setTimeout(createPanel, 1500);
+    });
+
+    GM_registerMenuCommand("打开小红书看板同步面板", createPanel);
+
+})();`;
+
         function copyScriptCode() {
             navigator.clipboard.writeText(tampermonkeyScriptCode).then(() => {
-                showToast("脚本源码已复制，请在篡改猴中新建脚本粘贴");
-            }).catch(err => {
-                alert("复制失败，请手动复制");
-            });
+                showToast("收藏夹脚本源码已复制");
+            }).catch(err => { alert("复制失败"); });
         }
 
         function downloadScriptFile() {
@@ -446,7 +693,24 @@ init();
             a.download = 'xhs_collector.user.js';
             a.click();
             URL.revokeObjectURL(url);
-            showToast("脚本文件已开始下载");
+            showToast("收藏夹脚本文件已开始下载");
+        }
+
+        function copyAuthorScriptCode() {
+            navigator.clipboard.writeText(authorScriptCode).then(() => {
+                showToast("作者主页脚本源码已复制");
+            }).catch(err => { alert("复制失败"); });
+        }
+
+        function downloadAuthorScriptFile() {
+            const blob = new Blob([authorScriptCode], { type: 'text/javascript;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'xhs_author_sync.user.js';
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast("作者主页脚本文件已开始下载");
         }
         // -----------------------------------------------------
 
@@ -457,7 +721,6 @@ init();
         let undoStack = [];
         let redoStack = [];
 
-        // 默认初始分类列表
         const DEFAULT_CATEGORIES = [
             'AI工具 & 科技', '副业搞钱 & 商业', '求职面试 & 职场', '自我提升 & 认知',
             '养生健康 & 变美', '旅行攻略 & 摄影', '美食料理 & 探店', '小说推文 & 阅读',
@@ -490,7 +753,6 @@ init();
             changeColumns(currentCols);
 
             try {
-                // 【核心修复】：优先从本地存储加载分类列表，避免每次刷新被硬编码覆盖
                 const savedCats = await localforage.getItem("xhs_custom_categories");
                 if (savedCats && Array.isArray(savedCats)) {
                     categoryList = savedCats;
@@ -499,7 +761,6 @@ init();
                 const savedData = await localforage.getItem("xhs_v10_interactive_notes");
                 if (savedData && savedData.length > 0) {
                     allNotes = savedData;
-                    // 确保笔记里可能带有的特殊分类也不会漏掉
                     allNotes.forEach(n => {
                         if (n.category && !categoryList.includes(n.category)) {
                             categoryList.push(n.category);
@@ -727,7 +988,6 @@ init();
 
         async function deleteCategory(catName, event) {
             if (event) event.stopPropagation();
-            // 获取一个备用分类（如果当前分类被删，归到剩余的第一个分类或默认兜底）
             const fallbackCat = categoryList.filter(c => c !== catName)[0] || '默认分类';
 
             if (confirm(`确定要删除分类“${catName}”吗？\n删除后，该分类下的笔记将被自动归类到其他可用分类中。`)) {
@@ -769,6 +1029,71 @@ init();
             const file = event.target.files[0];
             if (!file) return;
 
+            // 检查是否为作者主页导出的 JSON 文件
+            if (file.name.endsWith('.json')) {
+                const reader = new FileReader();
+                reader.onload = async function(e) {
+                    try {
+                        const jsonData = JSON.parse(e.target.result);
+                        if (jsonData && Array.isArray(jsonData.items)) {
+                            pushUndoState();
+                            showToast("正在解析作者主页 JSON 数据...");
+                            
+                            const authorCat = jsonData.category || '某博主文章';
+                            if (!categoryList.includes(authorCat)) {
+                                categoryList.push(authorCat);
+                                await saveCategoryList();
+                            }
+
+                            let addedCount = 0;
+                            const existingMap = new Map();
+                            allNotes.forEach(note => {
+                                const key = note.link && note.link !== '#' ? note.link : note.title;
+                                existingMap.set(key, note);
+                            });
+
+                            jsonData.items.forEach(item => {
+                                const link = item.url || '#';
+                                const title = item.title || '无标题笔记';
+                                const key = link !== '#' ? link : title;
+
+                                if (!existingMap.has(key)) {
+                                    const newNote = {
+                                        id: 'note_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+                                        title: title,
+                                        author: authorCat,
+                                        link: link,
+                                        cover: item.cover || '',
+                                        localCover: '',
+                                        likes: parseCountNumber(item.likes),
+                                        collects: 0,
+                                        category: authorCat,
+                                        ai_tags: '#博主精选 #同步文章',
+                                        myThoughts: ''
+                                    };
+                                    allNotes.unshift(newNote);
+                                    addedCount++;
+                                }
+                            });
+
+                            await localforage.setItem("xhs_v10_interactive_notes", allNotes);
+                            event.target.value = '';
+                            renderCategories();
+                            filterAndRender();
+                            showToast(`成功同步作者文章 ${addedCount} 条！`);
+                            cacheMissingImages();
+                        } else {
+                            alert("JSON 格式不匹配，无法识别为作者主页数据。");
+                        }
+                    } catch(err) {
+                        alert("解析 JSON 文件失败！");
+                    }
+                };
+                reader.readAsText(file);
+                return;
+            }
+
+            // 默认按 CSV 处理
             Papa.parse(file, {
                 header: true,
                 skipEmptyLines: true,
@@ -868,7 +1193,6 @@ init();
                 let category = categoryList[0] || '城市生活 & 探店';
                 for (let [catName, keywords] of Object.entries(PROMPT_CATEGORIES)) {
                     if (keywords.some(kw => fullText.includes(kw.toLowerCase()))) {
-                        // 确保匹配到的分类在当前用户的分类列表中存在，如果被删了则跳过或Fallback
                         if (categoryList.includes(catName)) {
                             category = catName;
                             break;
@@ -1156,7 +1480,7 @@ init();
                 return;
             }
             const backupData = {
-                version: "1.3",
+                version: "1.4",
                 exportTime: new Date().toISOString(),
                 categories: categoryList,
                 notes: allNotes
@@ -1197,7 +1521,7 @@ init();
                     }
                 } catch(err) {
                     alert("解析备份文件失败！");
-                }
+    }
             };
             reader.readAsText(file);
         }
