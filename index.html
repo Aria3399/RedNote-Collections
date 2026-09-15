@@ -52,7 +52,7 @@
                     
                     <div class="h-[1px] bg-gray-100 my-1"></div>
                     
-                    <div class="px-3 py-1 text-[10px] text-gray-400 font-bold uppercase tracking-wider">脚本2：带原专辑分类</div>
+                    <div class="px-3 py-1 text-[10px] text-gray-400 font-bold uppercase tracking-wider">脚本2：智能专辑助手</div>
                     <button onclick="copyScript2Code()" class="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700">
                         <i data-lucide="copy" class="w-3.5 h-3.5 text-gray-400"></i> 复制【脚本2】源码
                     </button>
@@ -325,12 +325,12 @@ document.querySelector('#d-btn').onclick = exportCsv;
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();`;
 
-        // ----------------- 脚本2：带原专辑分类导出源码 -----------------
+        // ----------------- 脚本2：智能专辑助手 -----------------
         const tampermonkeyScript2Code = `// ==UserScript==
-// @name XHS Auto Board Crawler Pro 2
+// @name XHS Auto Board Crawler Pro
 // @namespace https://tampermonkey.net/
-// @version 2.0.2
-// @description Export collected notes with custom album/board category on xiaohongshu.com to CSV.
+// @version 4.0.0
+// @description Automatically click into each XHS board (album), scrape notes with board name, go back, and repeat for all boards!
 // @match https://www.xiaohongshu.com/*
 // @match https://*.xiaohongshu.com/*
 // @run-at document-idle
@@ -339,91 +339,258 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
 // ==/UserScript==
 (function () {
 'use strict';
-const notes = [];
-const seen = new Set();
-let autoScrollTimer = null;
-function pickCover(note) { return note?.cover?.url_default || note?.cover?.url_pre || note?.note_card?.cover?.url_default || note?.note_card?.cover?.url_pre || ''; }
-function pickTitle(note) { return note?.display_title || note?.title || note?.note_card?.display_title || note?.note_card?.title || ''; }
-function pickNoteId(note) { return note?.note_id || note?.id || note?.note_card?.note_id || note?.note_card?.id || ''; }
-function pickToken(note) { return note?.xsec_token || note?.note_card?.xsec_token || ''; }
-function pickUser(note) { return note?.user || note?.user_info || note?.note_card?.user || note?.note_card?.user_info || {}; }
-function pickLikedCount(note) { return note?.interact_info?.liked_count || note?.note_card?.interact_info?.liked_count || ''; }
-function normalizeNote(raw) {
+
+let allNotes = [];
+let seenNoteIds = new Set();
+let isCrawling = false;
+
+function injectStyle() {
+if (document.querySelector('#xhs-auto-exporter-style')) return;
+const style = document.createElement('style');
+style.id = 'xhs-auto-exporter-style';
+style.textContent = \`
+.xhs-auto-exporter {
+position: fixed !important;
+left: 18px !important;
+top: 18px !important;
+z-index: 2147483647 !important;
+width: 240px !important;
+padding: 14px !important;
+border-radius: 12px !important;
+background: #18181b !important;
+color: #fff !important;
+box-shadow: 0 10px 30px rgba(0,0,0,.3) !important;
+font-size: 13px !important;
+line-height: 1.4 !important;
+font-family: Arial, sans-serif !important;
+}
+.xhs-auto-exporter .status-text {
+color: #ff2442 !important;
+font-weight: bold !important;
+margin: 6px 0 10px 0 !important;
+word-break: break-all !important;
+}
+.xhs-auto-exporter button {
+width: 100% !important;
+margin-top: 6px !important;
+border: 0 !important;
+border-radius: 8px !important;
+padding: 9px 10px !important;
+background: #ff2442 !important;
+color: #fff !important;
+cursor: pointer !important;
+font-size: 13px !important;
+font-weight: bold;
+}
+.xhs-auto-exporter button.secondary {
+background: #52525b !important;
+}
+\`;
+(document.head || document.documentElement).appendChild(style);
+}
+
+function pickCover(note) {
+return note?.cover?.url_default || note?.cover?.url_pre || note?.note_card?.cover?.url_default || note?.note_card?.cover?.url_pre || '';
+}
+function pickTitle(note) {
+return note?.display_title || note?.title || note?.note_card?.display_title || note?.note_card?.title || '';
+}
+function pickNoteId(note) {
+return note?.note_id || note?.id || note?.note_card?.note_id || note?.note_card?.id || '';
+}
+function pickToken(note) {
+return note?.xsec_token || note?.note_card?.xsec_token || '';
+}
+function pickUser(note) {
+return note?.user || note?.user_info || note?.note_card?.user || note?.note_card?.user_info || {};
+}
+function pickLikedCount(note) {
+return note?.interact_info?.liked_count || note?.note_card?.interact_info?.liked_count || '';
+}
+
+function getCurrentBoardName() {
+try {
+const titleEl = document.querySelector('.board-detail .title') || document.querySelector('.header-container .title') || document.querySelector('.page-title');
+if (titleEl && titleEl.textContent.trim()) return titleEl.textContent.trim();
+const docTitle = document.title || '';
+if (docTitle.includes('-')) {
+const parts = docTitle.split('-');
+if (parts[0] && !parts[0].includes('小红书')) return parts[0].trim();
+}
+} catch(e) {}
+return '默认专辑';
+}
+
+function normalizeNote(raw, boardName) {
 const note = raw?.note_card || raw;
 const noteId = pickNoteId(note);
 const token = pickToken(note);
 const user = pickUser(note);
 const url = noteId ? \`https://www.xiaohongshu.com/explore/\${noteId}\${token ? \`?xsec_token=\${encodeURIComponent(token)}&xsec_source=pc_user\` : ''}\` : '';
 return {
-note_id: noteId, title: pickTitle(note), author: user.nickname || user.nick_name || user.name || '', user_id: user.user_id || user.id || '', liked_count: pickLikedCount(note), cover: pickCover(note), url, category: window.__xhs_current_album_2 || '默认专辑', tags: '', remark: '', exported_from: 'auto_board_crawler_2', exported_at: new Date().toISOString()
+note_id: noteId,
+title: pickTitle(note),
+author: user.nickname || user.nick_name || user.name || '',
+user_id: user.user_id || user.id || '',
+liked_count: pickLikedCount(note),
+cover: pickCover(note),
+url,
+category: boardName || '默认专辑',
+tags: '',
+remark: '',
+exported_from: 'auto_board_crawler',
+exported_at: new Date().toISOString()
 };
 }
-function addNotes(list) {
-if (!Array.isArray(list)) return;
+
+function addNotesFromData(data, boardName) {
+const lists = findNoteLists(data);
+for (const list of lists) {
+if (!Array.isArray(list)) continue;
 for (const item of list) {
-const note = normalizeNote(item);
-if (!note.note_id || seen.has(note.note_id)) continue;
-seen.add(note.note_id); notes.push(note);
+const note = normalizeNote(item, boardName);
+if (!note.note_id || seenNoteIds.has(note.note_id)) continue;
+seenNoteIds.add(note.note_id);
+allNotes.push(note);
 }
-const counter = document.querySelector('#xhs-collect-export-counter-2');
-if (counter) counter.textContent = \`已抓到：\${notes.length} 条\`;
 }
+updateUIStatus();
+}
+
 function findNoteLists(data, found = []) {
 if (!data || typeof data !== 'object') return found;
 if (Array.isArray(data)) {
-if (data.some(item => item && typeof item === 'object' && (item.note_id || item.id || item.note_card))) found.push(data);
+if (data.some(item => item && typeof item === 'object' && (item.note_id || item.id || item.note_card))) {
+found.push(data);
+}
 for (const item of data) findNoteLists(item, found);
 return found;
 }
 for (const value of Object.values(data)) findNoteLists(value, found);
 return found;
 }
+
 function shouldReadUrl(url) {
 const text = String(url || '');
-return text.includes('/api/sns/web/v2/note/collect/page') || text.includes('/api/sns/web/v1/note/collect/page') || text.includes('/api/sns/web/v1/user/collect');
+return text.includes('/api/sns/web/v2/note/collect/page') ||
+text.includes('/api/sns/web/v1/note/collect/page') ||
+text.includes('/api/sns/web/v1/user/collect') ||
+text.includes('/api/sns/web/v1/board') ||
+text.includes('/api/sns/web/v2/board') ||
+text.includes('/api/sns/web/v1/feed');
 }
-function handleApiResponse(url, text) {
-if (!shouldReadUrl(url)) return;
-try { const data = JSON.parse(text); for (const list of findNoteLists(data)) addNotes(list); } catch (e) {}
+
+function interceptNetwork() {
+const originalOpen = XMLHttpRequest.prototype.open;
+const originalSend = XMLHttpRequest.prototype.send;
+XMLHttpRequest.prototype.open = function(method, url) {
+this.__xhs_url = url;
+return originalOpen.apply(this, arguments);
+};
+XMLHttpRequest.prototype.send = function() {
+this.addEventListener('load', function() {
+if (shouldReadUrl(this.__xhs_url)) {
+try {
+const data = JSON.parse(this.responseText);
+const currentBoard = getCurrentBoardName();
+addNotesFromData(data, currentBoard);
+} catch(e) {}
 }
-function interceptXHR() {
-const open = XMLHttpRequest.prototype.open, send = XMLHttpRequest.prototype.send;
-XMLHttpRequest.prototype.open = function(m, u) { this.__xhs_export_url = u; return open.apply(this, arguments); };
-XMLHttpRequest.prototype.send = function() { this.addEventListener('load', () => handleApiResponse(this.__xhs_export_url, this.responseText)); return send.apply(this, arguments); };
-}
-function interceptFetch() {
-const fetch = window.fetch;
+});
+return originalSend.apply(this, arguments);
+};
+
+const originalFetch = window.fetch;
 window.fetch = async function(...args) {
-const res = await fetch.apply(this, args);
+const response = await originalFetch.apply(this, args);
 const url = args[0]?.url || args[0];
-if (shouldReadUrl(url)) res.clone().text().then(t => handleApiResponse(url, t));
-return res;
+if (shouldReadUrl(url)) {
+response.clone().text().then(text => {
+try {
+const data = JSON.parse(text);
+const currentBoard = getCurrentBoardName();
+addNotesFromData(data, currentBoard);
+} catch(e) {}
+});
+}
+return response;
 };
 }
+
+function csvEscape(value) {
+const text = String(value ?? '');
+return \`"\${text.replaceAll('"', '""')}"\`;
+}
+
 function exportCsv() {
-if (!notes.length) { alert('还没有抓到收藏笔记。'); return; }
-const headers = Object.keys(notes[0]);
-const rows = [headers.join(','), ...notes.map(n => headers.map(h => \`"\${String(n[h] ?? '').replaceAll('"', '""')}"\`).join(','))];
+if (!allNotes.length) {
+alert('没有抓到任何笔记！请确保在正确的收藏/专辑页面执行。');
+return;
+}
+const headers = Object.keys(allNotes[0]);
+const rows = [
+headers.join(','),
+...allNotes.map(note => headers.map(header => csvEscape(note[header])).join(','))
+];
 const blob = new Blob(['\\ufeff' + rows.join('\\n')], { type: 'text/csv;charset=utf-8' });
-const link = document.createElement('a'); link.href = URL.createObjectURL(blob);
-link.download = \`xhs_album_\${window.__xhs_current_album_2 || 'notes'_\${new Date().toISOString().slice(0, 10)}.csv\`;
-link.click(); URL.revokeObjectURL(link.href);
+const link = document.createElement('a');
+link.href = URL.createObjectURL(blob);
+link.download = \`xhs_all_boards_notes_\${new Date().toISOString().slice(0, 10)}.csv\`;
+link.click();
+URL.revokeObjectURL(link.href);
 }
+
+function updateUIStatus(text) {
+const statusEl = document.querySelector('#xhs-auto-status');
+const countEl = document.querySelector('#xhs-auto-count');
+if (countEl) countEl.textContent = \`已累计抓到: \${allNotes.length} 条\`;
+if (statusEl && text) statusEl.textContent = text;
+}
+
+function createUI() {
+if (document.querySelector('.xhs-auto-exporter')) return;
+const panel = document.createElement('div');
+panel.className = 'xhs-auto-exporter';
+panel.innerHTML = \`
+<div><strong>小红书智能专辑助手</strong></div>
+<div id="xhs-auto-status" class="status-text">就绪：请进入某个专辑</div>
+<div id="xhs-auto-count">已累计抓到: 0 条</div>
+<button id="xhs-auto-scroll-btn">自动滚动当前专辑</button>
+<button id="xhs-auto-export-btn" class="secondary">导出全部 CSV</button>
+\`;
+document.documentElement.appendChild(panel);
+
+let scrollTimer = null;
+document.querySelector('#xhs-auto-scroll-btn').addEventListener('click', function() {
+if (scrollTimer) {
+clearInterval(scrollTimer);
+scrollTimer = null;
+this.textContent = '自动滚动当前专辑';
+updateUIStatus('已暂停滚动');
+} else {
+this.textContent = '停止滚动';
+updateUIStatus(\`正在抓取专辑: \${getCurrentBoardName()}\`);
+scrollTimer = setInterval(() => {
+window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+}, 1000);
+}
+});
+
+document.querySelector('#xhs-auto-export-btn').addEventListener('click', exportCsv);
+}
+
 function init() {
-interceptXHR(); interceptFetch();
-if (document.querySelector('.xhs-collect-exporter-2')) return;
-const p = document.createElement('div'); p.className = 'xhs-collect-exporter-2';
-p.style.cssText = 'position:fixed !important; left:18px !important; top:210px !important; z-index:2147483647 !important; width:210px !important; padding:12px !important; border-radius:12px !important; background:#18181b !important; color:#fff !important; box-shadow:0 10px 30px rgba(0,0,0,.22) !important; font-size:13px !important; font-family:Arial,sans-serif !important;';
-window.__xhs_current_album_2 = prompt('【脚本2】请输入当前小红书抓取的专辑分类名称（将写入category字段）：', '默认专辑') || '默认专辑';
-p.innerHTML = \`<div><strong>专辑分类导出 2</strong></div><div style="font-size:11px; color:#a1a1aa; margin-top:2px;">分类: \${window.__xhs_current_album_2}</div><div id="xhs-collect-export-counter-2">已抓到：0 条</div><button id="s-btn-2" style="width:100%!important;margin-top:8px!important;border:0!important;border-radius:8px!important;padding:9px 10px!important;background:#ff2442!important;color:#fff!important;cursor:pointer!important;font-size:13px!important;">自动滚动抓取</button><button id="d-btn-2" style="width:100%!important;margin-top:8px!important;border:0!important;border-radius:8px!important;padding:9px 10px!important;background:#52525b!important;color:#fff!important;cursor:pointer!important;font-size:13px!important;">导出 CSV</button>\`;
-document.documentElement.appendChild(p);
-document.querySelector('#s-btn-2').onclick = function() {
-if (autoScrollTimer) { clearInterval(autoScrollTimer); autoScrollTimer = null; this.textContent = '自动滚动抓取'; }
-else { this.textContent = '停止滚动'; autoScrollTimer = setInterval(() => window.scrollTo(0, document.body.scrollHeight), 1200); }
-};
-document.querySelector('#d-btn-2').onclick = exportCsv;
+interceptNetwork();
+injectStyle();
+createUI();
+console.log('XHS Auto Board Crawler Pro loaded.');
 }
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+
+if (document.readyState === 'loading') {
+document.addEventListener('DOMContentLoaded', init);
+} else {
+init();
+}
 })();`;
 
         // ----------------- 脚本3：点赞夹导出源码 -----------------
